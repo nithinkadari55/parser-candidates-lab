@@ -1,0 +1,81 @@
+{
+ "file": "synth_simple_noap.pdf",
+ "fields": [
+  {
+   "name": "full_name",
+   "type": "Tx",
+   "value": "Ada Lovelace",
+   "export": null,
+   "flags": 0,
+   "widgets": [
+    {
+     "page": 1,
+     "rect": [
+      160.0,
+      738.0,
+      420.0,
+      758.0
+     ],
+     "as": null
+    }
+   ]
+  },
+  {
+   "name": "city",
+   "type": "Tx",
+   "value": "Zoë Ñúñez",
+   "export": null,
+   "flags": 0,
+   "widgets": [
+    {
+     "page": 1,
+     "rect": [
+      160.0,
+      698.0,
+      420.0,
+      718.0
+     ],
+     "as": null
+    }
+   ]
+  },
+  {
+   "name": "subscribe",
+   "type": "Btn",
+   "value": "Yes",
+   "export": null,
+   "flags": 0,
+   "widgets": [
+    {
+     "page": 1,
+     "rect": [
+      160.0,
+      660.0,
+      176.0,
+      676.0
+     ],
+     "as": "Yes"
+    }
+   ]
+  },
+  {
+   "name": "country",
+   "type": "Ch",
+   "value": "Norway",
+   "export": null,
+   "flags": 131072,
+   "widgets": [
+    {
+     "page": 1,
+     "rect": [
+      160.0,
+      618.0,
+      320.0,
+      638.0
+     ],
+     "as": null
+    }
+   ]
+  }
+ ]
+}

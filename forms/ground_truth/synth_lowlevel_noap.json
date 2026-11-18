@@ -1,0 +1,307 @@
+{
+ "file": "synth_lowlevel_noap.pdf",
+ "fields": [
+  {
+   "name": "person.name",
+   "type": "Tx",
+   "value": "Zoë Ñúñez 日本",
+   "export": null,
+   "flags": 0,
+   "widgets": [
+    {
+     "page": 1,
+     "rect": [
+      160.0,
+      738.0,
+      420.0,
+      758.0
+     ],
+     "as": null
+    }
+   ]
+  },
+  {
+   "name": "person.notes",
+   "type": "Tx",
+   "value": "Line one\nLine two\nLine three",
+   "export": null,
+   "flags": 4096,
+   "widgets": [
+    {
+     "page": 1,
+     "rect": [
+      160.0,
+      660.0,
+      420.0,
+      730.0
+     ],
+     "as": null
+    }
+   ]
+  },
+  {
+   "name": "a.b.c",
+   "type": "Tx",
+   "value": "deep value",
+   "export": null,
+   "flags": 0,
+   "widgets": [
+    {
+     "page": 1,
+     "rect": [
+      160.0,
+      620.0,
+      420.0,
+      640.0
+     ],
+     "as": null
+    }
+   ]
+  },
+  {
+   "name": "inh.x",
+   "type": "Tx",
+   "value": "inherited value",
+   "export": null,
+   "flags": 0,
+   "widgets": [
+    {
+     "page": 1,
+     "rect": [
+      160.0,
+      590.0,
+      280.0,
+      610.0
+     ],
+     "as": null
+    }
+   ]
+  },
+  {
+   "name": "inh.y",
+   "type": "Tx",
+   "value": "own y",
+   "export": null,
+   "flags": 0,
+   "widgets": [
+    {
+     "page": 1,
+     "rect": [
+      300.0,
+      590.0,
+      420.0,
+      610.0
+     ],
+     "as": null
+    }
+   ]
+  },
+  {
+   "name": "pdfdoc",
+   "type": "Tx",
+   "value": "Bullet • dash — été",
+   "export": null,
+   "flags": 0,
+   "widgets": [
+    {
+     "page": 1,
+     "rect": [
+      160.0,
+      560.0,
+      420.0,
+      580.0
+     ],
+     "as": null
+    }
+   ]
+  },
+  {
+   "name": "café",
+   "type": "Tx",
+   "value": "x",
+   "export": null,
+   "flags": 0,
+   "widgets": [
+    {
+     "page": 1,
+     "rect": [
+      160.0,
+      530.0,
+      420.0,
+      550.0
+     ],
+     "as": null
+    }
+   ]
+  },
+  {
+   "name": "empty_text",
+   "type": "Tx",
+   "value": null,
+   "export": null,
+   "flags": 0,
+   "widgets": [
+    {
+     "page": 1,
+     "rect": [
+      160.0,
+      500.0,
+      420.0,
+      520.0
+     ],
+     "as": null
+    }
+   ]
+  },
+  {
+   "name": "multi_check",
+   "type": "Btn",
+   "value": "Yes",
+   "export": null,
+   "flags": 0,
+   "widgets": [
+    {
+     "page": 1,
+     "rect": [
+      160.0,
+      470.0,
+      176.0,
+      486.0
+     ],
+     "as": "Yes"
+    },
+    {
+     "page": 2,
+     "rect": [
+      160.0,
+      470.0,
+      176.0,
+      486.0
+     ],
+     "as": "Yes"
+    }
+   ]
+  },
+  {
+   "name": "agree_off",
+   "type": "Btn",
+   "value": "Off",
+   "export": null,
+   "flags": 0,
+   "widgets": [
+    {
+     "page": 1,
+     "rect": [
+      200.0,
+      470.0,
+      216.0,
+      486.0
+     ],
+     "as": "Off"
+    }
+   ]
+  },
+  {
+   "name": "size",
+   "type": "Btn",
+   "value": "1",
+   "export": "Medium",
+   "flags": 49152,
+   "widgets": [
+    {
+     "page": 1,
+     "rect": [
+      160.0,
+      440.0,
+      176.0,
+      456.0
+     ],
+     "as": "Off"
+    },
+    {
+     "page": 1,
+     "rect": [
+      190.0,
+      440.0,
+      206.0,
+      456.0
+     ],
+     "as": "1"
+    },
+    {
+     "page": 1,
+     "rect": [
+      220.0,
+      440.0,
+      236.0,
+      456.0
+     ],
+     "as": "Off"
+    }
+   ]
+  },
+  {
+   "name": "country",
+   "type": "Ch",
+   "value": "Sweden",
+   "export": null,
+   "flags": 131072,
+   "widgets": [
+    {
+     "page": 1,
+     "rect": [
+      160.0,
+      400.0,
+      320.0,
+      420.0
+     ],
+     "as": null
+    }
+   ]
+  },
+  {
+   "name": "langs",
+   "type": "Ch",
+   "value": [
+    "rs",
+    "go"
+   ],
+   "export": [
+    "Rust",
+    "Go"
+   ],
+   "flags": 2097152,
+   "widgets": [
+    {
+     "page": 1,
+     "rect": [
+      160.0,
+      320.0,
+      320.0,
+      390.0
+     ],
+     "as": null
+    }
+   ]
+  },
+  {
+   "name": "p2_text",
+   "type": "Tx",
+   "value": "Page two text",
+   "export": null,
+   "flags": 0,
+   "widgets": [
+    {
+     "page": 2,
+     "rect": [
+      160.0,
+      680.0,
+      420.0,
+      700.0
+     ],
+     "as": null
+    }
+   ]
+  }
+ ]
+}

@@ -1,0 +1,6 @@
+[workspace]
+resolver = "2"
+members = ["crates/lopdf_forms", "crates/oxide_forms", "crates/pdfer_forms_t", "crates/flpdf_forms", "crates/pdfium_forms"]
+
+[profile.release]
+debug = false

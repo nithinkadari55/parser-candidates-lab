@@ -1,0 +1,9 @@
+[package]
+name = "flpdf_forms"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+flpdf = "=0.10.0"
+serde_json = "1"

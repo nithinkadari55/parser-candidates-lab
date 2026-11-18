@@ -1,0 +1,165 @@
+%PDF-1.3
+%‚„œ”
+1 0 obj
+<<
+/Producer (pypdf)
+>>
+endobj
+2 0 obj
+<<
+/Type /Pages
+/Count 1
+/Kids [ 5 0 R ]
+>>
+endobj
+3 0 obj
+<<
+/Type /Catalog
+/Pages 2 0 R
+/AcroForm 13 0 R
+>>
+endobj
+4 0 obj
+<<
+/Type /Font
+/Subtype /Type1
+/BaseFont /Helvetica
+/Encoding /WinAnsiEncoding
+>>
+endobj
+5 0 obj
+<<
+/Type /Page
+/Resources <<
+/Font <<
+/F1 4 0 R
+>>
+>>
+/MediaBox [ 0.0 0.0 612 792 ]
+/Parent 2 0 R
+/Contents 10 0 R
+/Annots [ 6 0 R 7 0 R 8 0 R 9 0 R ]
+>>
+endobj
+6 0 obj
+<<
+/Type /Annot
+/Subtype /Widget
+/F 4
+/Rect [ 160 738 420 758 ]
+/P 5 0 R
+/FT /Tx
+/T (full\137name)
+/V (Ada Lovelace)
+/DA (\057Helv 11 Tf 0 g)
+>>
+endobj
+7 0 obj
+<<
+/Type /Annot
+/Subtype /Widget
+/F 4
+/Rect [ 160 698 420 718 ]
+/P 5 0 R
+/FT /Tx
+/T (city)
+/V <feff005a006f00eb002000d100fa00f10065007a>
+/DA (\057Helv 11 Tf 0 g)
+>>
+endobj
+8 0 obj
+<<
+/Type /Annot
+/Subtype /Widget
+/F 4
+/Rect [ 160 660 176 676 ]
+/P 5 0 R
+/FT /Btn
+/T (subscribe)
+/V /Yes
+/AS /Yes
+/DA (\057ZaDb 0 Tf 0 g)
+/MK <<
+/CA (4)
+>>
+>>
+endobj
+9 0 obj
+<<
+/Type /Annot
+/Subtype /Widget
+/F 4
+/Rect [ 160 618 320 638 ]
+/P 5 0 R
+/FT /Ch
+/T (country)
+/Ff 131072
+/Opt [ (Norway) (Sweden) ]
+/V (Norway)
+/DA (\057Helv 11 Tf 0 g)
+>>
+endobj
+10 0 obj
+<<
+/Length 160
+>>
+stream
+BT /F1 11 Tf 72 745 Td (Full name:) Tj ET
+BT /F1 11 Tf 72 705 Td (City:) Tj ET
+BT /F1 11 Tf 72 665 Td (Subscribe:) Tj ET
+BT /F1 11 Tf 72 625 Td (Country:) Tj ET
+endstream
+endobj
+11 0 obj
+<<
+/Type /Font
+/Subtype /Type1
+/BaseFont /Helvetica
+/Encoding /WinAnsiEncoding
+>>
+endobj
+12 0 obj
+<<
+/Type /Font
+/Subtype /Type1
+/BaseFont /ZapfDingbats
+>>
+endobj
+13 0 obj
+<<
+/Fields [ 6 0 R 7 0 R 8 0 R 9 0 R ]
+/NeedAppearances true
+/DA (\057Helv 0 Tf 0 g)
+/DR <<
+/Font <<
+/Helv 11 0 R
+/ZaDb 12 0 R
+>>
+>>
+>>
+endobj
+xref
+0 14
+0000000000 65535 f 
+0000000015 00000 n 
+0000000054 00000 n 
+0000000113 00000 n 
+0000000179 00000 n 
+0000000276 00000 n 
+0000000445 00000 n 
+0000000605 00000 n 
+0000000785 00000 n 
+0000000959 00000 n 
+0000001146 00000 n 
+0000001358 00000 n 
+0000001456 00000 n 
+0000001530 00000 n 
+trailer
+<<
+/Size 14
+/Root 3 0 R
+/Info 1 0 R
+>>
+startxref
+1682
+%%EOF

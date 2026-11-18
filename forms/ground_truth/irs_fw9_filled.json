@@ -1,0 +1,442 @@
+{
+ "file": "irs_fw9_filled.pdf",
+ "fields": [
+  {
+   "name": "topmostSubform[0].Page1[0].f1_01[0]",
+   "type": "Tx",
+   "value": "Zoë Ñúñez",
+   "export": null,
+   "flags": 8388608,
+   "widgets": [
+    {
+     "page": 1,
+     "rect": [
+      58.6,
+      659.97,
+      576.0,
+      673.97
+     ],
+     "as": null
+    }
+   ]
+  },
+  {
+   "name": "topmostSubform[0].Page1[0].f1_02[0]",
+   "type": "Tx",
+   "value": "Ñúñez Consulting LLC",
+   "export": null,
+   "flags": 8388608,
+   "widgets": [
+    {
+     "page": 1,
+     "rect": [
+      58.6,
+      635.97,
+      576.0,
+      649.97
+     ],
+     "as": null
+    }
+   ]
+  },
+  {
+   "name": "topmostSubform[0].Page1[0].Boxes3a-b_ReadOrder[0].c1_1[0]",
+   "type": "Btn",
+   "value": "1",
+   "export": null,
+   "flags": 0,
+   "widgets": [
+    {
+     "page": 1,
+     "rect": [
+      73.0,
+      603.72,
+      81.0,
+      611.72
+     ],
+     "as": "1"
+    }
+   ]
+  },
+  {
+   "name": "topmostSubform[0].Page1[0].Boxes3a-b_ReadOrder[0].c1_1[1]",
+   "type": "Btn",
+   "value": "Off",
+   "export": null,
+   "flags": 0,
+   "widgets": [
+    {
+     "page": 1,
+     "rect": [
+      180.0,
+      603.72,
+      188.0,
+      611.72
+     ],
+     "as": "Off"
+    }
+   ]
+  },
+  {
+   "name": "topmostSubform[0].Page1[0].Boxes3a-b_ReadOrder[0].c1_1[2]",
+   "type": "Btn",
+   "value": "Off",
+   "export": null,
+   "flags": 0,
+   "widgets": [
+    {
+     "page": 1,
+     "rect": [
+      252.0,
+      603.72,
+      260.0,
+      611.72
+     ],
+     "as": "Off"
+    }
+   ]
+  },
+  {
+   "name": "topmostSubform[0].Page1[0].Boxes3a-b_ReadOrder[0].c1_1[3]",
+   "type": "Btn",
+   "value": "Off",
+   "export": null,
+   "flags": 0,
+   "widgets": [
+    {
+     "page": 1,
+     "rect": [
+      324.0,
+      603.72,
+      332.0,
+      611.72
+     ],
+     "as": "Off"
+    }
+   ]
+  },
+  {
+   "name": "topmostSubform[0].Page1[0].Boxes3a-b_ReadOrder[0].c1_1[4]",
+   "type": "Btn",
+   "value": "Off",
+   "export": null,
+   "flags": 0,
+   "widgets": [
+    {
+     "page": 1,
+     "rect": [
+      388.8,
+      603.72,
+      396.8,
+      611.72
+     ],
+     "as": "Off"
+    }
+   ]
+  },
+  {
+   "name": "topmostSubform[0].Page1[0].Boxes3a-b_ReadOrder[0].c1_1[5]",
+   "type": "Btn",
+   "value": "Off",
+   "export": null,
+   "flags": 0,
+   "widgets": [
+    {
+     "page": 1,
+     "rect": [
+      73.0,
+      590.47,
+      81.0,
+      598.47
+     ],
+     "as": "Off"
+    }
+   ]
+  },
+  {
+   "name": "topmostSubform[0].Page1[0].Boxes3a-b_ReadOrder[0].f1_03[0]",
+   "type": "Tx",
+   "value": null,
+   "export": null,
+   "flags": 0,
+   "widgets": [
+    {
+     "page": 1,
+     "rect": [
+      417.6,
+      588.97,
+      446.4,
+      599.97
+     ],
+     "as": null
+    }
+   ]
+  },
+  {
+   "name": "topmostSubform[0].Page1[0].Boxes3a-b_ReadOrder[0].c1_1[6]",
+   "type": "Btn",
+   "value": "Off",
+   "export": null,
+   "flags": 0,
+   "widgets": [
+    {
+     "page": 1,
+     "rect": [
+      73.0,
+      553.97,
+      81.0,
+      561.97
+     ],
+     "as": "Off"
+    }
+   ]
+  },
+  {
+   "name": "topmostSubform[0].Page1[0].Boxes3a-b_ReadOrder[0].f1_04[0]",
+   "type": "Tx",
+   "value": null,
+   "export": null,
+   "flags": 8388608,
+   "widgets": [
+    {
+     "page": 1,
+     "rect": [
+      162.4,
+      551.97,
+      446.4,
+      563.97
+     ],
+     "as": null
+    }
+   ]
+  },
+  {
+   "name": "topmostSubform[0].Page1[0].Boxes3a-b_ReadOrder[0].c1_2[0]",
+   "type": "Btn",
+   "value": "Off",
+   "export": null,
+   "flags": 0,
+   "widgets": [
+    {
+     "page": 1,
+     "rect": [
+      440.6,
+      520.97,
+      448.6,
+      528.97
+     ],
+     "as": "Off"
+    }
+   ]
+  },
+  {
+   "name": "topmostSubform[0].Page1[0].f1_05[0]",
+   "type": "Tx",
+   "value": null,
+   "export": null,
+   "flags": 8388608,
+   "widgets": [
+    {
+     "page": 1,
+     "rect": [
+      543.6,
+      587.97,
+      576.0,
+      599.97
+     ],
+     "as": null
+    }
+   ]
+  },
+  {
+   "name": "topmostSubform[0].Page1[0].f1_06[0]",
+   "type": "Tx",
+   "value": null,
+   "export": null,
+   "flags": 8388608,
+   "widgets": [
+    {
+     "page": 1,
+     "rect": [
+      500.6,
+      551.97,
+      576.0,
+      563.97
+     ],
+     "as": null
+    }
+   ]
+  },
+  {
+   "name": "topmostSubform[0].Page1[0].Address_ReadOrder[0].f1_07[0]",
+   "type": "Tx",
+   "value": "123 Main St., Apt 4",
+   "export": null,
+   "flags": 8388608,
+   "widgets": [
+    {
+     "page": 1,
+     "rect": [
+      58.6,
+      491.97,
+      388.05,
+      505.97
+     ],
+     "as": null
+    }
+   ]
+  },
+  {
+   "name": "topmostSubform[0].Page1[0].Address_ReadOrder[0].f1_08[0]",
+   "type": "Tx",
+   "value": "Springfield, IL 62701",
+   "export": null,
+   "flags": 8388608,
+   "widgets": [
+    {
+     "page": 1,
+     "rect": [
+      58.6,
+      467.97,
+      388.05,
+      481.97
+     ],
+     "as": null
+    }
+   ]
+  },
+  {
+   "name": "topmostSubform[0].Page1[0].f1_09[0]",
+   "type": "Tx",
+   "value": null,
+   "export": null,
+   "flags": 8392704,
+   "widgets": [
+    {
+     "page": 1,
+     "rect": [
+      389.8,
+      467.97,
+      576.0,
+      505.97
+     ],
+     "as": null
+    }
+   ]
+  },
+  {
+   "name": "topmostSubform[0].Page1[0].f1_10[0]",
+   "type": "Tx",
+   "value": null,
+   "export": null,
+   "flags": 8388608,
+   "widgets": [
+    {
+     "page": 1,
+     "rect": [
+      58.6,
+      443.97,
+      576.0,
+      457.97
+     ],
+     "as": null
+    }
+   ]
+  },
+  {
+   "name": "topmostSubform[0].Page1[0].f1_11[0]",
+   "type": "Tx",
+   "value": "123",
+   "export": null,
+   "flags": 25165824,
+   "widgets": [
+    {
+     "page": 1,
+     "rect": [
+      417.6,
+      395.97,
+      460.8,
+      419.97
+     ],
+     "as": null
+    }
+   ]
+  },
+  {
+   "name": "topmostSubform[0].Page1[0].f1_12[0]",
+   "type": "Tx",
+   "value": "45",
+   "export": null,
+   "flags": 25165824,
+   "widgets": [
+    {
+     "page": 1,
+     "rect": [
+      475.2,
+      395.97,
+      504.0,
+      419.97
+     ],
+     "as": null
+    }
+   ]
+  },
+  {
+   "name": "topmostSubform[0].Page1[0].f1_13[0]",
+   "type": "Tx",
+   "value": "6789",
+   "export": null,
+   "flags": 25165824,
+   "widgets": [
+    {
+     "page": 1,
+     "rect": [
+      518.4,
+      395.97,
+      576.0,
+      419.97
+     ],
+     "as": null
+    }
+   ]
+  },
+  {
+   "name": "topmostSubform[0].Page1[0].f1_14[0]",
+   "type": "Tx",
+   "value": null,
+   "export": null,
+   "flags": 25165824,
+   "widgets": [
+    {
+     "page": 1,
+     "rect": [
+      417.6,
+      347.97,
+      446.4,
+      371.97
+     ],
+     "as": null
+    }
+   ]
+  },
+  {
+   "name": "topmostSubform[0].Page1[0].f1_15[0]",
+   "type": "Tx",
+   "value": null,
+   "export": null,
+   "flags": 25165824,
+   "widgets": [
+    {
+     "page": 1,
+     "rect": [
+      460.8,
+      347.97,
+      561.6,
+      371.97
+     ],
+     "as": null
+    }
+   ]
+  }
+ ]
+}

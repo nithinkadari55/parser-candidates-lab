@@ -1,0 +1,74 @@
+name: forms
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - "forms/**"
+      - ".github/workflows/forms.yml"
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
+    env:
+      CARGO_TERM_COLOR: never
+      PDFIUM_TAG: chromium/8125
+    steps:
+      - uses: actions/checkout@v4
+      - name: Toolchain
+        run: |
+          rustup update stable --no-self-update
+          rustup default stable
+          rustc --version
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: forms
+      - name: Build each crate
+        working-directory: forms
+        run: |
+          mkdir -p ../results
+          OSN=${{ runner.os }}
+          : > ../results/build-$OSN.txt
+          for p in lopdf_forms oxide_forms pdfer_forms_t flpdf_forms pdfium_forms; do
+            start=$(date +%s)
+            if cargo build --release -p $p > ../results/build-$p-$OSN.log 2>&1; then s=ok; else s=FAIL; fi
+            echo "$p $s $(( $(date +%s) - start ))s" | tee -a ../results/build-$OSN.txt
+            tail -n 30 ../results/build-$p-$OSN.log
+          done
+          rustc --version >> ../results/build-$OSN.txt
+          cargo tree -p lopdf_forms -i lopdf --depth 0 >> ../results/build-$OSN.txt 2>&1 || true
+          cargo tree -p pdfer_forms_t -i lopdf --depth 0 >> ../results/build-$OSN.txt 2>&1 || true
+      - name: Fetch pdfium
+        run: |
+          if [ "${{ runner.os }}" = "Windows" ]; then a=pdfium-win-x64.tgz; sub=bin; else a=pdfium-linux-x64.tgz; sub=lib; fi
+          mkdir -p "$RUNNER_TEMP/pdfium"
+          curl -sSL -o "$RUNNER_TEMP/$a" "https://github.com/bblanchon/pdfium-binaries/releases/download/${PDFIUM_TAG/\//%2F}/$a"
+          tar xzf "$RUNNER_TEMP/$a" -C "$RUNNER_TEMP/pdfium"
+          ls "$RUNNER_TEMP/pdfium/$sub"
+          echo "PDFIUM_LIB_DIR=$RUNNER_TEMP/pdfium/$sub" >> "$GITHUB_ENV"
+      - name: Run extractors
+        run: |
+          OSN=${{ runner.os }}
+          ext=""; [ "$OSN" = "Windows" ] && ext=".exe"
+          for p in lopdf_forms oxide_forms pdfer_forms_t flpdf_forms pdfium_forms; do
+            exe=forms/target/release/$p$ext
+            if [ ! -f "$exe" ]; then echo "$p not built"; continue; fi
+            if [ "$p" = "pdfium_forms" ]; then export RENDER_DIR=results/png-$OSN; else unset RENDER_DIR; fi
+            set +e
+            "$exe" forms/pdfs/*.pdf > results/$p-$OSN.json 2> results/$p-$OSN.stderr.txt
+            echo "$p exit=$?" | tee -a results/build-$OSN.txt
+            set -e
+            head -c 600 results/$p-$OSN.stderr.txt || true
+          done
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: results-${{ runner.os }}
+          path: results/

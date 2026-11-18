@@ -1,0 +1,196 @@
+{
+ "file": "synth_reportlab.pdf",
+ "fields": [
+  {
+   "name": "rl_name",
+   "type": "Tx",
+   "value": "Zoë Ñúñez",
+   "export": null,
+   "flags": 0,
+   "widgets": [
+    {
+     "page": 1,
+     "rect": [
+      160.0,
+      730.0,
+      410.0,
+      750.0
+     ],
+     "as": null
+    }
+   ]
+  },
+  {
+   "name": "rl_notes",
+   "type": "Tx",
+   "value": "Line one\nLine two\nLine three",
+   "export": null,
+   "flags": 4096,
+   "widgets": [
+    {
+     "page": 1,
+     "rect": [
+      160.0,
+      640.0,
+      410.0,
+      710.0
+     ],
+     "as": null
+    }
+   ]
+  },
+  {
+   "name": "rl_agree",
+   "type": "Btn",
+   "value": "Yes",
+   "export": null,
+   "flags": 2,
+   "widgets": [
+    {
+     "page": 1,
+     "rect": [
+      160.0,
+      595.0,
+      176.0,
+      611.0
+     ],
+     "as": "Yes"
+    }
+   ]
+  },
+  {
+   "name": "rl_spam",
+   "type": "Btn",
+   "value": "Off",
+   "export": null,
+   "flags": 2,
+   "widgets": [
+    {
+     "page": 1,
+     "rect": [
+      160.0,
+      565.0,
+      176.0,
+      581.0
+     ],
+     "as": "Off"
+    }
+   ]
+  },
+  {
+   "name": "rl_color",
+   "type": "Btn",
+   "value": "green",
+   "export": null,
+   "flags": 49154,
+   "widgets": [
+    {
+     "page": 1,
+     "rect": [
+      160.0,
+      535.0,
+      176.0,
+      551.0
+     ],
+     "as": "Off"
+    },
+    {
+     "page": 1,
+     "rect": [
+      200.0,
+      535.0,
+      216.0,
+      551.0
+     ],
+     "as": "green"
+    },
+    {
+     "page": 1,
+     "rect": [
+      240.0,
+      535.0,
+      256.0,
+      551.0
+     ],
+     "as": "Off"
+    }
+   ]
+  },
+  {
+   "name": "rl_country",
+   "type": "Ch",
+   "value": "Norway",
+   "export": null,
+   "flags": 131072,
+   "widgets": [
+    {
+     "page": 1,
+     "rect": [
+      160.0,
+      495.0,
+      310.0,
+      515.0
+     ],
+     "as": null
+    }
+   ]
+  },
+  {
+   "name": "rl_lang",
+   "type": "Ch",
+   "value": "Rust",
+   "export": null,
+   "flags": 0,
+   "widgets": [
+    {
+     "page": 1,
+     "rect": [
+      160.0,
+      400.0,
+      310.0,
+      460.0
+     ],
+     "as": null
+    }
+   ]
+  },
+  {
+   "name": "rl_p2_text",
+   "type": "Tx",
+   "value": "On page two",
+   "export": null,
+   "flags": 0,
+   "widgets": [
+    {
+     "page": 2,
+     "rect": [
+      160.0,
+      730.0,
+      410.0,
+      750.0
+     ],
+     "as": null
+    }
+   ]
+  },
+  {
+   "name": "rl_p2_check",
+   "type": "Btn",
+   "value": "Yes",
+   "export": null,
+   "flags": 2,
+   "widgets": [
+    {
+     "page": 2,
+     "rect": [
+      160.0,
+      695.0,
+      176.0,
+      711.0
+     ],
+     "as": "Yes"
+    }
+   ]
+  }
+ ]
+}

@@ -1,0 +1,9 @@
+[package]
+name = "pdfer_forms_t"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+pdfer_forms = "=0.3.4"
+serde_json = "1"

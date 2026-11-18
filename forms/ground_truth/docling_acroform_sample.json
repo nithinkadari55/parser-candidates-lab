@@ -1,0 +1,81 @@
+{
+ "file": "docling_acroform_sample.pdf",
+ "fields": [
+  {
+   "name": "applicant_name",
+   "type": "Tx",
+   "value": "Ada Lovelace",
+   "export": null,
+   "flags": 2,
+   "widgets": [
+    {
+     "page": 1,
+     "rect": [
+      150.0,
+      690.0,
+      400.0,
+      710.0
+     ],
+     "as": null
+    }
+   ]
+  },
+  {
+   "name": "agree_terms",
+   "type": "Btn",
+   "value": "Yes",
+   "export": null,
+   "flags": 0,
+   "widgets": [
+    {
+     "page": 1,
+     "rect": [
+      72.0,
+      638.0,
+      86.0,
+      652.0
+     ],
+     "as": "Yes"
+    }
+   ]
+  },
+  {
+   "name": "newsletter",
+   "type": "Btn",
+   "value": "Off",
+   "export": null,
+   "flags": 0,
+   "widgets": [
+    {
+     "page": 1,
+     "rect": [
+      72.0,
+      608.0,
+      86.0,
+      622.0
+     ],
+     "as": "Off"
+    }
+   ]
+  },
+  {
+   "name": "mail_optin",
+   "type": "Btn",
+   "value": null,
+   "export": null,
+   "flags": 0,
+   "widgets": [
+    {
+     "page": 1,
+     "rect": [
+      72.0,
+      578.0,
+      86.0,
+      592.0
+     ],
+     "as": "On"
+    }
+   ]
+  }
+ ]
+}
