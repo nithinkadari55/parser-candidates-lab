@@ -12,11 +12,31 @@ fn deref<'a>(doc: &'a Document, o: &'a Object) -> &'a Object {
     doc.dereference(o).map(|(_, x)| x).unwrap_or(o)
 }
 
+fn pdfdoc_table() -> &'static [Option<char>; 256] {
+    static T: std::sync::OnceLock<[Option<char>; 256]> = std::sync::OnceLock::new();
+    T.get_or_init(|| {
+        let mut t = [None; 256];
+        for b in 0..256usize {
+            t[b] = match b as u8 {
+                0x09 | 0x0A | 0x0C | 0x0D => Some(b as u8 as char),
+                0x00..=0x17 => None,
+                x => decode_text_string(&Object::string_literal(vec![x])).ok().and_then(|s| s.chars().next()),
+            };
+        }
+        t
+    })
+}
+
 fn text_of(o: &Object) -> Option<String> {
     match o {
-        Object::String(bytes, _) => Some(match decode_text_string(o) {
-            Ok(s) => s.trim_start_matches('\u{feff}').to_string(),
-            Err(_) => bytes.iter().map(|&b| b as char).collect(),
+        Object::String(bytes, _) => Some(if bytes.starts_with(b"\xFE\xFF") || bytes.starts_with(b"\xEF\xBB\xBF") {
+            match decode_text_string(o) {
+                Ok(s) => s.trim_start_matches('\u{feff}').to_string(),
+                Err(_) => String::from_utf8_lossy(bytes).into_owned(),
+            }
+        } else {
+            let t = pdfdoc_table();
+            bytes.iter().filter_map(|&b| t[b as usize]).collect()
         }),
         Object::Name(n) => Some(String::from_utf8_lossy(n).into_owned()),
         _ => None,

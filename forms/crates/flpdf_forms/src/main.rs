@@ -42,7 +42,15 @@ fn extract(path: &str) -> Result<Vec<Value>, String> {
         let Ok(list) = annots.try_get_array_as_vector() else { continue };
         for a in list {
             let Some(aref) = a.object_ref() else { continue };
-            let Some(fref) = map.get(&aref) else { continue };
+            let Some(mapped) = map.get(&aref) else { continue };
+            let fref = if infos.iter().any(|i| i.object_ref == *mapped) {
+                *mapped
+            } else {
+                match a.try_get_key(b"/Parent").ok().and_then(|p| p.object_ref()) {
+                    Some(p) => p,
+                    None => *mapped,
+                }
+            };
             let rect = a.try_get_key(b"/Rect").ok().and_then(|r| r.try_get_array_as_vector().ok()).and_then(|v| {
                 let n: Vec<f64> = v.iter().filter_map(|x| x.try_get_numeric_value().ok()).collect();
                 (n.len() == 4).then(|| [n[0], n[1], n[2], n[3]])

@@ -48,11 +48,10 @@ jobs:
       - name: Fetch pdfium
         run: |
           if [ "${{ runner.os }}" = "Windows" ]; then a=pdfium-win-x64.tgz; sub=bin; else a=pdfium-linux-x64.tgz; sub=lib; fi
-          mkdir -p "$RUNNER_TEMP/pdfium"
-          curl -sSL -o "$RUNNER_TEMP/$a" "https://github.com/bblanchon/pdfium-binaries/releases/download/${PDFIUM_TAG/\//%2F}/$a"
-          tar xzf "$RUNNER_TEMP/$a" -C "$RUNNER_TEMP/pdfium"
-          ls "$RUNNER_TEMP/pdfium/$sub"
-          echo "PDFIUM_LIB_DIR=$RUNNER_TEMP/pdfium/$sub" >> "$GITHUB_ENV"
+          mkdir -p pdfium-bin
+          curl -sSL -o pdfium-bin/$a "https://github.com/bblanchon/pdfium-binaries/releases/download/${PDFIUM_TAG/\//%2F}/$a"
+          cd pdfium-bin && tar xzf $a && ls $sub
+          d=$(pwd -W 2>/dev/null || pwd); echo "PDFIUM_LIB_DIR=$d/$sub" >> "$GITHUB_ENV"
       - name: Run extractors
         run: |
           OSN=${{ runner.os }}
