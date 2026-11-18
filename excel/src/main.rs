@@ -145,7 +145,7 @@ fn calamine_prep(wb: &mut CalXlsx, name: &str) -> Result<(Merges, HashMap<(u32, 
 fn dump_calamine_stream(path: &Path, file: &str, out: Out) -> Result<(), String> {
     use calamine::Reader;
     let k = "calamine_stream";
-    let mut wb: CalXlsx = calamine::open_workbook(path).map_err(|e| e.to_string())?;
+    let mut wb: CalXlsx = calamine::open_workbook::<CalXlsx, _>(path).map_err(|e| e.to_string())?;
     let metas: Vec<(String, String)> = wb.sheets_metadata().iter().map(|s| (s.name.clone(), format!("{:?}", s.typ))).collect();
     let is_1904 = wb.has_1904_epoch();
     for (name, typ) in metas {
@@ -188,7 +188,7 @@ fn dump_calamine_stream(path: &Path, file: &str, out: Out) -> Result<(), String>
 fn dump_calamine_range(path: &Path, file: &str, out: Out) -> Result<(), String> {
     use calamine::Reader;
     let k = "calamine_range";
-    let mut wb: CalXlsx = calamine::open_workbook(path).map_err(|e| e.to_string())?;
+    let mut wb: CalXlsx = calamine::open_workbook::<CalXlsx, _>(path).map_err(|e| e.to_string())?;
     let names = wb.sheet_names();
     for name in names {
         let (merges, formulas) = match calamine_prep(&mut wb, &name) {
@@ -361,7 +361,7 @@ fn cmd_dump(outdir: &str, files: &[String]) {
 
 fn count_calamine_stream(path: &Path) -> Result<usize, String> {
     use calamine::Reader;
-    let mut wb: CalXlsx = calamine::open_workbook(path).map_err(|e| e.to_string())?;
+    let mut wb: CalXlsx = calamine::open_workbook::<CalXlsx, _>(path).map_err(|e| e.to_string())?;
     let mut n = 0;
     for name in wb.sheet_names() {
         let mut reader = wb.worksheet_cells_reader(&name).map_err(|e| e.to_string())?;
@@ -378,7 +378,7 @@ fn count_calamine_stream(path: &Path) -> Result<usize, String> {
 
 fn count_calamine_range(path: &Path) -> Result<usize, String> {
     use calamine::Reader;
-    let mut wb: CalXlsx = calamine::open_workbook(path).map_err(|e| e.to_string())?;
+    let mut wb: CalXlsx = calamine::open_workbook::<CalXlsx, _>(path).map_err(|e| e.to_string())?;
     let mut n = 0;
     for name in wb.sheet_names() {
         let range = wb.worksheet_range(&name).map_err(|e| e.to_string())?;
@@ -397,7 +397,7 @@ fn count_calamine_range(path: &Path) -> Result<usize, String> {
 
 fn count_calamine_values_only(path: &Path) -> Result<usize, String> {
     use calamine::Reader;
-    let mut wb: CalXlsx = calamine::open_workbook(path).map_err(|e| e.to_string())?;
+    let mut wb: CalXlsx = calamine::open_workbook::<CalXlsx, _>(path).map_err(|e| e.to_string())?;
     let mut n = 0;
     for name in wb.sheet_names() {
         let range = wb.worksheet_range(&name).map_err(|e| e.to_string())?;
