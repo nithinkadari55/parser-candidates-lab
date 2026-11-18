@@ -432,6 +432,9 @@ fn count_rxls(path: &Path) -> Result<usize, String> {
             n += 1;
         }
     }
+    if wb.text_truncated {
+        println!("RXLS_TEXT_TRUNCATED file={} cells={}", path.display(), n);
+    }
     Ok(n)
 }
 
