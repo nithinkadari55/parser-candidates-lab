@@ -1,0 +1,15 @@
+[package]
+name = "excel-probe"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+calamine = { version = "=0.38.0", features = ["dates"] }
+umya-spreadsheet = "=3.1.1"
+rxls = { version = "=0.1.4", default-features = false, features = ["xlsx", "xlsb", "chrono"] }
+chrono = "0.4"
+serde_json = "1"
+
+[profile.release]
+debug = false

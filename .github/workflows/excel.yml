@@ -1,0 +1,52 @@
+name: excel
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - "excel/**"
+      - ".github/workflows/excel.yml"
+
+jobs:
+  probe:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
+        working-directory: excel
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: excel
+      - name: Toolchain
+        run: rustc --version && cargo --version
+      - name: Build
+        run: cargo build --release
+      - name: Resolved crate versions
+        run: cargo tree --depth 1 -e normal | tee resolved.txt
+      - name: Generate synthetic files
+        run: python gen_files.py gen
+      - name: Dump cells
+        run: |
+          mkdir -p out
+          ./target/release/excel-probe dump out testdata/* gen/x_edge.xlsx gen/x_edge_1904.xlsx | tee out/files.jsonl
+      - name: Bench
+        run: |
+          ./target/release/excel-probe bench testdata/x05_large.xlsx 5 | tee out/bench.txt
+          ./target/release/excel-probe bench gen/big_100k.xlsx 3 | tee -a out/bench.txt
+      - name: Collect
+        if: always()
+        run: cp resolved.txt out/ || true
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: excel-out-${{ matrix.os }}
+          path: excel/out
