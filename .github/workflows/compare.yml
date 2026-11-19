@@ -1,0 +1,492 @@
+name: compare
+
+on:
+  workflow_dispatch:
+    inputs:
+      reuse_run:
+        description: "earlier run id: skip the model jobs and re-score / re-aggregate its artifacts"
+        default: ""
+
+concurrency:
+  group: compare-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  ODB_DIR: /home/runner/odb
+  CORPUS_DIR: /home/runner/corpus
+  DLRS_MODELS: /home/runner/dlrs
+  PYTHONUNBUFFERED: "1"
+  HF_HUB_DISABLE_PROGRESS_BARS: "1"
+  PADDLE_PDX_DISABLE_MODEL_SOURCE_CHECK: "True"
+  ODB_KEY: cmp-odb-sel-v1
+
+jobs:
+  prep:
+    if: inputs.reuse_run == ''
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install huggingface_hub==2.4.0 pypdfium2==5.15.2
+      - id: odb
+        uses: actions/cache@v4
+        with:
+          path: /home/runner/odb
+          key: ${{ env.ODB_KEY }}
+      - if: steps.odb.outputs.cache-hit != 'true'
+        run: python compare/scripts/fetch.py odb
+      - id: corpus
+        uses: actions/cache@v4
+        with:
+          path: /home/runner/corpus
+          key: cmp-corpus-cfb8df2
+      - if: steps.corpus.outputs.cache-hit != 'true'
+        run: python compare/scripts/fetch.py corpus
+      - id: dlrs
+        uses: actions/cache@v4
+        with:
+          path: /home/runner/dlrs
+          key: cmp-dlrs-models-v1
+      - if: steps.dlrs.outputs.cache-hit != 'true'
+        run: python compare/scripts/fetch.py dlrs
+      - run: |
+          python compare/scripts/common.py
+          for f in /home/runner/corpus/pdf/*.pdf /home/runner/corpus/scanned/*.pdf; do python -c "import sys,pypdfium2 as p; print(len(p.PdfDocument(sys.argv[1])), sys.argv[1])" "$f"; done
+          du -sh /home/runner/dlrs/models; ls -la /home/runner/dlrs/models /home/runner/dlrs/models/tableformer
+          mkdir -p out && python compare/scripts/licenses.py dlrs out/licenses-dlrs.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: licenses-dlrs
+          path: out/
+
+  prep_formula:
+    if: inputs.reuse_run == ''
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - id: f
+        uses: actions/cache@v4
+        with:
+          path: /home/runner/dlrs-formula
+          key: cmp-dlrs-formula-v1
+      - if: steps.f.outputs.cache-hit != 'true'
+        run: DLRS_MODELS=/home/runner/dlrs-formula python compare/scripts/fetch.py dlrs_formula && du -sh /home/runner/dlrs-formula/models/code_formula && sha256sum /home/runner/dlrs-formula/models/code_formula/*
+
+  prep_pp:
+    needs: prep
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install -r compare/requirements-pp.txt && pip freeze | grep -iE 'paddle|onnx|opencv|numpy'
+      - uses: actions/cache/restore@v4
+        with:
+          path: /home/runner/odb
+          key: ${{ env.ODB_KEY }}
+          fail-on-cache-miss: true
+      - id: pp
+        uses: actions/cache@v4
+        with:
+          path: /home/runner/.paddlex/official_models
+          key: cmp-pp-models-3.7.2-v1
+      - run: |
+          img=$(python -c "import sys; sys.path.insert(0,'compare/scripts'); import common as C; print(C.ODB + '/images/' + C.selection_index()[0]['img'])")
+          python compare/scripts/run_pp.py files 0 1 out/warm "$img"
+          du -sh /home/runner/.paddlex/official_models/*
+          python compare/scripts/licenses.py pp out/licenses-pp.json
+          rm -rf out/warm
+      - uses: actions/upload-artifact@v4
+        with:
+          name: licenses-pp
+          path: out/
+
+  odb_dlrs:
+    needs: prep
+    runs-on: ubuntu-latest
+    timeout-minutes: 115
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [0, 1, 2, 3]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install -r compare/requirements-dl.txt
+      - uses: actions/cache/restore@v4
+        with:
+          path: /home/runner/odb
+          key: ${{ env.ODB_KEY }}
+          fail-on-cache-miss: true
+      - uses: actions/cache/restore@v4
+        with:
+          path: /home/runner/dlrs
+          key: cmp-dlrs-models-v1
+          fail-on-cache-miss: true
+      - run: python compare/scripts/run_dlrs.py odb ${{ matrix.shard }} 4 out
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: pred-dlrs-${{ matrix.shard }}
+          path: out/
+          retention-days: 3
+
+  odb_dlrsf:
+    needs: [prep, prep_formula]
+    runs-on: ubuntu-latest
+    timeout-minutes: 115
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [0, 1, 2]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install -r compare/requirements-dl.txt
+      - uses: actions/cache/restore@v4
+        with:
+          path: /home/runner/odb
+          key: ${{ env.ODB_KEY }}
+          fail-on-cache-miss: true
+      - uses: actions/cache/restore@v4
+        with:
+          path: /home/runner/dlrs
+          key: cmp-dlrs-models-v1
+          fail-on-cache-miss: true
+      - uses: actions/cache/restore@v4
+        with:
+          path: /home/runner/dlrs-formula
+          key: cmp-dlrs-formula-v1
+          fail-on-cache-miss: true
+      - run: mv /home/runner/dlrs-formula/models/code_formula /home/runner/dlrs/models/ && ls -la /home/runner/dlrs/models/code_formula
+      - run: python compare/scripts/run_dlrs.py odb_formula ${{ matrix.shard }} 3 out
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: pred-dlrsf-${{ matrix.shard }}
+          path: out/
+          retention-days: 3
+
+  odb_pp:
+    needs: [prep, prep_pp]
+    runs-on: ubuntu-latest
+    timeout-minutes: 115
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [0, 1, 2, 3, 4, 5, 6, 7]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install -r compare/requirements-pp.txt
+      - uses: actions/cache/restore@v4
+        with:
+          path: /home/runner/odb
+          key: ${{ env.ODB_KEY }}
+          fail-on-cache-miss: true
+      - uses: actions/cache/restore@v4
+        with:
+          path: /home/runner/.paddlex/official_models
+          key: cmp-pp-models-3.7.2-v1
+      - run: python compare/scripts/run_pp.py odb ${{ matrix.shard }} 8 out
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: pred-pp-${{ matrix.shard }}
+          path: out/
+          retention-days: 3
+
+  own_dlrs:
+    needs: prep
+    runs-on: ubuntu-latest
+    timeout-minutes: 115
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [0, 1]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install -r compare/requirements-dl.txt
+      - uses: actions/cache/restore@v4
+        with:
+          path: /home/runner/corpus
+          key: cmp-corpus-cfb8df2
+          fail-on-cache-miss: true
+      - uses: actions/cache/restore@v4
+        with:
+          path: /home/runner/dlrs
+          key: cmp-dlrs-models-v1
+          fail-on-cache-miss: true
+      - run: python compare/scripts/run_dlrs.py own ${{ matrix.shard }} 2 out
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: own-dlrs-${{ matrix.shard }}
+          path: out/
+
+  own_pp:
+    needs: [prep, prep_pp]
+    runs-on: ubuntu-latest
+    timeout-minutes: 115
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [0, 1, 2, 3]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install -r compare/requirements-pp.txt
+      - uses: actions/cache/restore@v4
+        with:
+          path: /home/runner/corpus
+          key: cmp-corpus-cfb8df2
+          fail-on-cache-miss: true
+      - uses: actions/cache/restore@v4
+        with:
+          path: /home/runner/.paddlex/official_models
+          key: cmp-pp-models-3.7.2-v1
+      - run: python compare/scripts/run_pp.py own ${{ matrix.shard }} 4 out
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: own-pp-${{ matrix.shard }}
+          path: out/
+
+  office:
+    needs: prep
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - uses: actions/cache/restore@v4
+        with:
+          path: /home/runner/corpus
+          key: cmp-corpus-cfb8df2
+          fail-on-cache-miss: true
+      - uses: actions/cache/restore@v4
+        with:
+          path: /home/runner/dlrs
+          key: cmp-dlrs-models-v1
+          fail-on-cache-miss: true
+      - run: |
+          python -m venv /home/runner/vdl && /home/runner/vdl/bin/pip install -q -r compare/requirements-dl.txt
+          python -m venv /home/runner/vpp && /home/runner/vpp/bin/pip install -q -r compare/requirements-pp.txt
+      - run: |
+          /home/runner/vdl/bin/python compare/scripts/make_office.py /home/runner/synthetic
+          C=/home/runner/corpus
+          /home/runner/vdl/bin/python compare/scripts/office.py dlrs $C/docx $C/pptx $C/xlsx /home/runner/synthetic --out out/dlrs
+          /home/runner/vpp/bin/python compare/scripts/office.py pp $C/docx $C/pptx $C/xlsx /home/runner/synthetic --out out/pp
+          /home/runner/vpp/bin/python -c "from paddleocr._doc2md import supported_formats as s; print('doc2md formats', s())"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: office
+          path: out/
+
+  timing:
+    needs: [prep, prep_pp]
+    runs-on: ubuntu-latest
+    timeout-minutes: 115
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - uses: actions/cache/restore@v4
+        with:
+          path: /home/runner/odb
+          key: ${{ env.ODB_KEY }}
+          fail-on-cache-miss: true
+      - uses: actions/cache/restore@v4
+        with:
+          path: /home/runner/corpus
+          key: cmp-corpus-cfb8df2
+          fail-on-cache-miss: true
+      - uses: actions/cache/restore@v4
+        with:
+          path: /home/runner/dlrs
+          key: cmp-dlrs-models-v1
+          fail-on-cache-miss: true
+      - uses: actions/cache/restore@v4
+        with:
+          path: /home/runner/.paddlex/official_models
+          key: cmp-pp-models-3.7.2-v1
+      - run: |
+          python -m venv /home/runner/vdl && /home/runner/vdl/bin/pip install -q -r compare/requirements-dl.txt
+          python -m venv /home/runner/vpp && /home/runner/vpp/bin/pip install -q -r compare/requirements-pp.txt
+      - run: nproc; lscpu | grep -E 'Model name|^CPU\(s\)'; free -m
+      - run: PY_DL=/home/runner/vdl/bin/python PY_PP=/home/runner/vpp/bin/python python compare/scripts/timing.py out/timing
+      - run: rm -rf out/timing/*/md out/timing/*/json
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: timing
+          path: out/
+
+  pp_onnx:
+    needs: prep
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install -r compare/requirements-pp-onnx.txt && (python -c "import paddle" && echo "paddle importable" || echo "paddlepaddle NOT installed")
+      - uses: actions/cache/restore@v4
+        with:
+          path: /home/runner/odb
+          key: ${{ env.ODB_KEY }}
+          fail-on-cache-miss: true
+      - uses: actions/cache/restore@v4
+        with:
+          path: /home/runner/corpus
+          key: cmp-corpus-cfb8df2
+          fail-on-cache-miss: true
+      - run: |
+          imgs=$(python -c "import sys; sys.path.insert(0,'compare/scripts'); import common as C; s=C.selection_index(); print(' '.join(C.ODB + '/images/' + x['img'] for x in [s[1], s[100], s[180], s[260]]))")
+          python compare/scripts/run_pp.py --engine onnxruntime --tag pp_onnx files 0 1 out/onnx $imgs /home/runner/corpus/pdf/2206.01062.pdf > out-onnx.log 2>&1; echo "rc=$?" >> out-onnx.log
+          python compare/scripts/run_pp.py --engine onnxruntime --no-formula --tag pp_onnx_noformula files 0 1 out/onnx_nf $imgs /home/runner/corpus/pdf/2206.01062.pdf > out-onnx-nf.log 2>&1; echo "rc=$?" >> out-onnx-nf.log
+          mkdir -p out && (tail -60 out-onnx.log; echo ----; tail -60 out-onnx-nf.log) > out/pp_onnx-errors.txt
+          cat out/pp_onnx-errors.txt
+          ls ~/.paddlex/official_models || true; du -sh ~/.paddlex/official_models/* || true
+          rm -rf out/onnx*/md out/onnx*/json
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: pp-onnx
+          path: out/
+
+  windows:
+    if: inputs.reuse_run == ''
+    runs-on: windows-latest
+    timeout-minutes: 90
+    continue-on-error: true
+    defaults:
+      run:
+        shell: bash
+    env:
+      CORPUS_DIR: C:/corpus
+      DLRS_MODELS: C:/dlrs
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: |
+          python -m venv C:/vdl && /c/vdl/Scripts/pip install -q -r compare/requirements-dl.txt
+          /c/vdl/Scripts/python compare/scripts/fetch.py corpus dlrs
+          /c/vdl/Scripts/python compare/scripts/make_office.py C:/synthetic
+          /c/vdl/Scripts/python compare/scripts/run_dlrs.py files 0 1 out/dl C:/corpus/pdf/2206.01062.pdf C:/corpus/scanned/ocr_test.pdf C:/synthetic/synthetic.docx C:/synthetic/synthetic.pptx C:/synthetic/synthetic.xlsx
+          mv out/dl/results-files-0.jsonl out/results-win-dlrs.jsonl
+      - run: |
+          python -m venv C:/vpp && /c/vpp/Scripts/pip install -q -r compare/requirements-pp.txt
+          /c/vpp/Scripts/python compare/scripts/run_pp.py files 0 1 out/pp C:/corpus/pdf/table_mislabeled_as_picture.pdf C:/corpus/scanned/ocr_test.pdf
+          mv out/pp/results-pp-files-0.jsonl out/results-win-pp.jsonl
+      - run: rm -rf out/dl out/pp
+        if: always()
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: windows
+          path: out/
+
+  eval:
+    needs: [odb_dlrs, odb_dlrsf, odb_pp]
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 115
+    strategy:
+      fail-fast: false
+      matrix:
+        method: [dlrs, dlrs_formula, pp]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+      - run: |
+          git clone https://github.com/opendatalab/OmniDocBench /home/runner/odb-eval
+          git -C /home/runner/odb-eval checkout 7ddb8df411ad9bd2fff139acafe0ed16aa1694fe
+          pip install -r compare/requirements-eval.txt
+      - uses: actions/cache/restore@v4
+        with:
+          path: /home/runner/odb
+          key: ${{ env.ODB_KEY }}
+          fail-on-cache-miss: true
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: pred-${{ matrix.method == 'pp' && 'pp' || 'dlrs' }}-*
+          path: preds
+          merge-multiple: true
+          run-id: ${{ inputs.reuse_run || github.run_id }}
+          github-token: ${{ github.token }}
+      - if: matrix.method == 'dlrs_formula'
+        uses: actions/download-artifact@v4
+        with:
+          pattern: pred-dlrsf-*
+          path: predsf
+          merge-multiple: true
+          run-id: ${{ inputs.reuse_run || github.run_id }}
+          github-token: ${{ github.token }}
+      - run: |
+          mkdir -p /home/runner/md/${{ matrix.method }}
+          cp preds/md/*.md /home/runner/md/${{ matrix.method }}/
+          if [ -d predsf/md ]; then cp predsf/md/*.md /home/runner/md/${{ matrix.method }}/; fi
+          ls /home/runner/md/${{ matrix.method }} | wc -l
+          python compare/scripts/odb_eval.py ${{ matrix.method }} /home/runner/md/${{ matrix.method }} /home/runner/odb-eval out
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: eval-${{ matrix.method }}
+          path: out/
+
+  aggregate:
+    needs: [prep, prep_pp, eval, own_dlrs, own_pp, office, timing, pp_onnx, windows]
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - uses: actions/download-artifact@v4
+        with:
+          path: art
+      - if: inputs.reuse_run != ''
+        uses: actions/download-artifact@v4
+        with:
+          path: art/old
+          run-id: ${{ inputs.reuse_run }}
+          github-token: ${{ github.token }}
+      - run: |
+          rm -rf art/*/md art/*/json art/old/*/md art/old/*/json art/old/eval-*
+          mkdir -p out && python compare/scripts/aggregate.py art out && cat out/summary.md >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: summary
+          path: out/

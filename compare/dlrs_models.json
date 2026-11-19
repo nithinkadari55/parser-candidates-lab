@@ -1,0 +1,112 @@
+{
+ "$comment": "docling.rs 2.84.0 models used by our harness (fp32 layout, TableFormer accurate fp32, PP-OCRv6 small det + medium rec, textline orientation, picture classifier); formula = CodeFormulaV2 fp32 (opt-in variant only).",
+ "release": "https://github.com/docling-project/docling.rs/releases/download/models-v1",
+ "base": [
+  {
+   "path": "layout_heron.onnx",
+   "url": "https://github.com/docling-project/docling.rs/releases/download/models-v1/layout_heron.onnx",
+   "sha256": "4f6125ab049d2844c85f13f3d9db527c6aeee88e5da2cf15e08379d456ad55d2",
+   "size": 172208540,
+   "license": "Apache-2.0"
+  },
+  {
+   "path": "tableformer/encoder.onnx",
+   "url": "https://github.com/docling-project/docling.rs/releases/download/models-v1/encoder.onnx",
+   "sha256": "6042884931d4a5b0c651676e53d7b40d6658fbc3d0c197ed5bf37386ff8aa96b",
+   "size": 107827334,
+   "license": "CDLA-Permissive-2.0 AND Apache-2.0"
+  },
+  {
+   "path": "tableformer/decoder_kv_layers.onnx",
+   "url": "https://github.com/docling-project/docling.rs/releases/download/models-v1/decoder_kv_layers.onnx",
+   "sha256": "59846d2639dff5d18c2d356c77f629465d9dde8c63ab48d39a92d32609e94a99",
+   "size": 248935,
+   "license": "CDLA-Permissive-2.0 AND Apache-2.0"
+  },
+  {
+   "path": "tableformer/decoder_kv.onnx",
+   "url": "https://github.com/docling-project/docling.rs/releases/download/models-v1/decoder_kv.onnx",
+   "sha256": "c87f0ff1c314179921c0332bbee6bb1207535643a132a4a9dc4905d3a3f573a5",
+   "size": 350250,
+   "license": "CDLA-Permissive-2.0 AND Apache-2.0"
+  },
+  {
+   "path": "tableformer/decoder_kv.onnx.data",
+   "url": "https://github.com/docling-project/docling.rs/releases/download/models-v1/decoder_kv.onnx.data",
+   "sha256": "e71523a8b7603f983088b04c9d5cb4203be117e4a0e5950028ae46a9e98103eb",
+   "size": 115580928,
+   "license": "CDLA-Permissive-2.0 AND Apache-2.0"
+  },
+  {
+   "path": "tableformer/bbox.onnx",
+   "url": "https://github.com/docling-project/docling.rs/releases/download/models-v1/bbox.onnx",
+   "sha256": "a3cd88ae198bd8ae3338fbb89cf2f054474c964ae5001611727db7240eaf1125",
+   "size": 52234,
+   "license": "CDLA-Permissive-2.0 AND Apache-2.0"
+  },
+  {
+   "path": "tableformer/bbox.onnx.data",
+   "url": "https://github.com/docling-project/docling.rs/releases/download/models-v1/bbox.onnx.data",
+   "sha256": "e936773730de30a2d10528f69e064fd9fd222259aa65078c421f3186b5b7e36a",
+   "size": 39618560,
+   "license": "CDLA-Permissive-2.0 AND Apache-2.0"
+  },
+  {
+   "path": "ocr_det.onnx",
+   "url": "https://github.com/docling-project/docling.rs/releases/download/models-v1/ocr_det.onnx",
+   "sha256": "090f04abcd9d9a7498bc4ebf677e4cb9bdce1fe4197ddb7e529f1ef44e1ff94f",
+   "size": 9929594,
+   "license": "Apache-2.0"
+  },
+  {
+   "path": "ocr_rec_v6_medium.onnx",
+   "url": "https://huggingface.co/PaddlePaddle/PP-OCRv6_medium_rec_onnx/resolve/50c7eacafc52fa7bcf4194e8cd08e46f8558504b/inference.onnx",
+   "sha256": "9c09abf0957f7968c7586464b7397b84ad2387a0497a351af40e9acc71b673ba",
+   "size": 76554979,
+   "license": "Apache-2.0"
+  },
+  {
+   "path": "ocr_rec_v6_dict.txt",
+   "url": "https://github.com/docling-project/docling.rs/releases/download/models-v1/ocr_rec_v6_dict.txt",
+   "sha256": "b5f2bfe2bdd9448429e3e82b51c789775d9b42f2403d082b00662eb77e401c5d",
+   "size": 74947,
+   "license": "Apache-2.0"
+  },
+  {
+   "path": "ocr_textline_ori.onnx",
+   "url": "https://github.com/docling-project/docling.rs/releases/download/models-v1/ocr_textline_ori.onnx",
+   "sha256": "54379ae5174d026780215fc748a7f31910dee36818e63d49e17dc598ecc82df7",
+   "size": 1018508,
+   "license": "Apache-2.0"
+  },
+  {
+   "path": "picture_classifier.onnx",
+   "url": "https://github.com/docling-project/docling.rs/releases/download/models-v1/picture_classifier.onnx",
+   "sha256": "27ffc48c27ae4e12c99b6f6de0dd730005245e47b70dd0c1339e62cbac3ec4c0",
+   "size": 16940439,
+   "license": "MIT"
+  }
+ ],
+ "formula": [
+  {
+   "path": "code_formula/vision.onnx",
+   "url": "https://github.com/docling-project/docling.rs/releases/download/models-v1/cf_vision.onnx"
+  },
+  {
+   "path": "code_formula/embed.onnx",
+   "url": "https://github.com/docling-project/docling.rs/releases/download/models-v1/cf_embed.onnx"
+  },
+  {
+   "path": "code_formula/decoder_kv.onnx",
+   "url": "https://github.com/docling-project/docling.rs/releases/download/models-v1/cf_decoder_kv.onnx"
+  },
+  {
+   "path": "code_formula/tokenizer.json",
+   "url": "https://github.com/docling-project/docling.rs/releases/download/models-v1/cf_tokenizer.json"
+  }
+ ],
+ "records": [
+  "models.json",
+  "MODELS_NOTICE.md"
+ ]
+}
