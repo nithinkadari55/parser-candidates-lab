@@ -2,6 +2,10 @@ name: order
 
 on:
   workflow_dispatch:
+    inputs:
+      part:
+        description: "all | order (reading order on GT boxes only) | layout"
+        default: all
   push:
     paths:
       - "order/**"
@@ -13,16 +17,19 @@ concurrency:
 
 env:
   ODB_DIR: /home/runner/odb
+  DRD_DIR: /home/runner/drdoc
   PP_DIR: /home/runner/ppdlv3
   DLRS_CACHE: /home/runner/dlrs
-  PDF_DIR: /home/runner/pdfs
+  LMODELS_DIR: /home/runner/lmodels
+  DLN_DIR: /home/runner/dln
   PYTHONUNBUFFERED: "1"
   HF_HUB_DISABLE_PROGRESS_BARS: "1"
+  PART: ${{ github.event_name == 'push' && 'all' || inputs.part }}
 
 jobs:
   prep:
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 90
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -36,6 +43,13 @@ jobs:
           key: odb-english-v1
       - if: steps.odb.outputs.cache-hit != 'true'
         run: python order/scripts/fetch.py odb
+      - id: drd
+        uses: actions/cache@v4
+        with:
+          path: /home/runner/drdoc
+          key: drdoc-dev-7a2bc38-v1
+      - if: steps.drd.outputs.cache-hit != 'true'
+        run: python order/scripts/fetch.py drdoc
       - id: pp
         uses: actions/cache@v4
         with:
@@ -43,6 +57,13 @@ jobs:
           key: ppdlv3-onnx-46bbdf1
       - if: steps.pp.outputs.cache-hit != 'true'
         run: python order/scripts/fetch.py pp
+      - id: lm
+        uses: actions/cache@v4
+        with:
+          path: /home/runner/lmodels
+          key: layout-egret06b27d8-ppl361fe8f-v1
+      - if: steps.lm.outputs.cache-hit != 'true'
+        run: python order/scripts/fetch.py lmodels
       - id: dlrs
         uses: actions/cache@v4
         with:
@@ -52,23 +73,19 @@ jobs:
         run: |
           pip install docling-rs==2.84.0
           python -c "from docling_rs import models as m; m.download_models(dest='/home/runner/dlrs', progress=False, enrichment=False)"
-          du -sh /home/runner/dlrs; find /home/runner/dlrs -type f | head -40
-      - id: pdfs
-        uses: actions/cache@v4
-        with:
-          path: /home/runner/pdfs
-          key: doclingrs-pdfs-cfb8df2
-      - if: steps.pdfs.outputs.cache-hit != 'true'
-        run: python order/scripts/fetch.py pdfs
-      - run: python order/scripts/odb.py
+      - run: |
+          ls -la /home/runner/dlrs/models /home/runner/lmodels/* /home/runner/ppdlv3
+          du -sh /home/runner/odb /home/runner/drdoc
+          python order/scripts/datasets.py odb drdoc
 
-  gt:
+  ro:
     needs: prep
     runs-on: ubuntu-latest
     timeout-minutes: 120
     strategy:
       fail-fast: false
       matrix:
+        ds: [odb, drdoc]
         group: [docling, logic]
         shard: [0, 1]
     steps:
@@ -76,123 +93,117 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-      - run: pip install -r order/requirements-core.txt && python order/scripts/fetch.py vendor
+      - run: pip install -r order/requirements-core.txt -r order/requirements-pp.txt && python order/scripts/fetch.py vendor
       - uses: actions/cache/restore@v4
         with:
           path: /home/runner/odb
           key: odb-english-v1
           fail-on-cache-miss: true
-      - run: mkdir -p out && python order/scripts/run_gt.py ${{ matrix.group }} ${{ matrix.shard }} 2 out/gt-${{ matrix.group }}-${{ matrix.shard }}.jsonl
+      - uses: actions/cache/restore@v4
+        with:
+          path: /home/runner/drdoc
+          key: drdoc-dev-7a2bc38-v1
+          fail-on-cache-miss: true
+      - run: mkdir -p out && python order/scripts/run_ro.py ${{ matrix.ds }} ${{ matrix.group }} ${{ matrix.shard }} 2 out/ro-${{ matrix.ds }}-${{ matrix.group }}-${{ matrix.shard }}.jsonl
       - uses: actions/upload-artifact@v4
         with:
-          name: gt-${{ matrix.group }}-${{ matrix.shard }}
+          name: ro-${{ matrix.ds }}-${{ matrix.group }}-${{ matrix.shard }}
           path: out/
 
-  pp:
+  layout:
     needs: prep
+    if: ${{ github.event_name == 'push' || inputs.part != 'order' }}
     runs-on: ubuntu-latest
     timeout-minutes: 120
     strategy:
       fail-fast: false
       matrix:
-        shard: [0, 1, 2, 3]
+        model: [heron, heron_int8, egret, ppl, ppv3]
+        shard: [0, 1, 2, 3, 4, 5]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-      - run: pip install -r order/requirements-core.txt -r order/requirements-pp.txt
+      - run: pip install -r order/requirements-core.txt -r order/requirements-pp.txt pyarrow==21.0.0
       - uses: actions/cache/restore@v4
         with:
           path: /home/runner/odb
           key: odb-english-v1
           fail-on-cache-miss: true
       - uses: actions/cache/restore@v4
+        with:
+          path: /home/runner/drdoc
+          key: drdoc-dev-7a2bc38-v1
+          fail-on-cache-miss: true
+      - if: startsWith(matrix.model, 'heron')
+        uses: actions/cache/restore@v4
+        with:
+          path: /home/runner/dlrs
+          key: dlrs-2.84.0-models-v1
+          fail-on-cache-miss: true
+      - if: matrix.model == 'egret' || matrix.model == 'ppl'
+        uses: actions/cache/restore@v4
+        with:
+          path: /home/runner/lmodels
+          key: layout-egret06b27d8-ppl361fe8f-v1
+          fail-on-cache-miss: true
+      - if: matrix.model == 'ppv3'
+        uses: actions/cache/restore@v4
         with:
           path: /home/runner/ppdlv3
           key: ppdlv3-onnx-46bbdf1
           fail-on-cache-miss: true
-      - run: mkdir -p out && python order/scripts/run_pp.py ${{ matrix.shard }} 4 out/pp-${{ matrix.shard }}.jsonl
+      - run: |
+          mkdir -p out
+          gt=""; [ "${{ matrix.model }}" = "heron" ] && gt="--gt out/dln-gt-${{ matrix.shard }}.jsonl"
+          python order/layout/run_layout.py ${{ matrix.model }} ${{ matrix.shard }} 6 out/layout-${{ matrix.model }}-${{ matrix.shard }}.jsonl $gt
+          rm -rf /home/runner/dln
       - uses: actions/upload-artifact@v4
         with:
-          name: pp-${{ matrix.shard }}
+          name: layout-${{ matrix.model }}-${{ matrix.shard }}
           path: out/
 
-  heron:
+  dlrs:
     needs: prep
+    if: ${{ github.event_name == 'push' || inputs.part != 'order' }}
     runs-on: ubuntu-latest
     timeout-minutes: 120
     strategy:
       fail-fast: false
       matrix:
-        shard: [0, 1, 2, 3, 4, 5, 6, 7]
+        shard: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-      - run: pip install -r order/requirements-core.txt docling-rs==2.84.0
+      - run: pip install -r order/requirements-core.txt docling-rs==2.84.0 pyarrow==21.0.0
       - uses: actions/cache/restore@v4
         with:
           path: /home/runner/odb
           key: odb-english-v1
+          fail-on-cache-miss: true
+      - uses: actions/cache/restore@v4
+        with:
+          path: /home/runner/drdoc
+          key: drdoc-dev-7a2bc38-v1
           fail-on-cache-miss: true
       - uses: actions/cache/restore@v4
         with:
           path: /home/runner/dlrs
           key: dlrs-2.84.0-models-v1
           fail-on-cache-miss: true
-      - run: mkdir -p out && python order/scripts/run_heron.py ${{ matrix.shard }} 8 out/heron-${{ matrix.shard }}.jsonl
+      - run: mkdir -p out && python order/scripts/run_dlrs.py ${{ matrix.shard }} 10 out/dlrs-${{ matrix.shard }}.jsonl
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: heron-${{ matrix.shard }}
-          path: out/
-
-  own:
-    needs: prep
-    runs-on: ubuntu-latest
-    timeout-minutes: 120
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
-      - run: pip install -r order/requirements-core.txt -r order/requirements-pp.txt -r order/requirements-tools.txt && python order/scripts/fetch.py vendor
-      - uses: actions/cache/restore@v4
-        with:
-          path: /home/runner/ppdlv3
-          key: ppdlv3-onnx-46bbdf1
-          fail-on-cache-miss: true
-      - uses: actions/cache/restore@v4
-        with:
-          path: /home/runner/dlrs
-          key: dlrs-2.84.0-models-v1
-          fail-on-cache-miss: true
-      - uses: actions/cache/restore@v4
-        with:
-          path: /home/runner/pdfs
-          key: doclingrs-pdfs-cfb8df2
-          fail-on-cache-miss: true
-      - name: Build EdgeParse CLI from source
-        continue-on-error: true
-        run: |
-          java -version 2>&1 | head -1; rustc --version
-          git clone --depth 1 https://github.com/raphaelmansuy/edgeparse /home/runner/edgeparse
-          cd /home/runner/edgeparse && git log -1 --format='%H %cd'
-          cargo build --release -p edgeparse-cli 2>&1 | tail -5
-          b=$(find target/release -maxdepth 1 -type f -perm -u+x -name 'edgeparse*' | head -1)
-          echo "built: $b"; "$b" --help | head -30
-          echo "EDGEPARSE_BIN=/home/runner/edgeparse/$b" >> "$GITHUB_ENV"
-      - run: mkdir -p out && python order/scripts/own.py out/own.json
-      - uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: own
+          name: dlrs-${{ matrix.shard }}
           path: out/
 
   timing:
     needs: prep
+    if: ${{ github.event_name == 'push' || inputs.part != 'order' }}
     runs-on: ubuntu-latest
     timeout-minutes: 90
     steps:
@@ -200,7 +211,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-      - run: pip install -r order/requirements-core.txt -r order/requirements-pp.txt docling-rs==2.84.0 && python order/scripts/fetch.py vendor
+      - run: pip install -r order/requirements-core.txt -r order/requirements-pp.txt docling-rs==2.84.0
       - uses: actions/cache/restore@v4
         with:
           path: /home/runner/odb
@@ -208,42 +219,69 @@ jobs:
           fail-on-cache-miss: true
       - uses: actions/cache/restore@v4
         with:
-          path: /home/runner/ppdlv3
-          key: ppdlv3-onnx-46bbdf1
+          path: /home/runner/drdoc
+          key: drdoc-dev-7a2bc38-v1
           fail-on-cache-miss: true
       - uses: actions/cache/restore@v4
         with:
           path: /home/runner/dlrs
           key: dlrs-2.84.0-models-v1
           fail-on-cache-miss: true
+      - uses: actions/cache/restore@v4
+        with:
+          path: /home/runner/lmodels
+          key: layout-egret06b27d8-ppl361fe8f-v1
+          fail-on-cache-miss: true
+      - uses: actions/cache/restore@v4
+        with:
+          path: /home/runner/ppdlv3
+          key: ppdlv3-onnx-46bbdf1
+          fail-on-cache-miss: true
       - run: nproc; lscpu | grep -E 'Model name|^CPU\(s\)'; free -m
-      - run: mkdir -p out && python order/scripts/timing.py out/timing.json
+      - run: |
+          mkdir -p out
+          for m in heron heron_int8 egret ppl ppv3; do
+            [ -f "$(python -c "import sys; sys.path.insert(0,'order/layout'); import models; print(models.PATHS['$m'])")" ] || { echo "skip $m"; continue; }
+            python order/layout/run_layout.py --bench $m 30 out/bench-$m.json
+          done
+          python order/scripts/bench_dlrs.py 10 out/bench-dlrs.json
       - uses: actions/upload-artifact@v4
         with:
           name: timing
           path: out/
 
   aggregate:
-    needs: [gt, pp, heron, own, timing]
+    needs: [ro, layout, dlrs, timing]
     if: always()
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 90
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-      - run: pip install -r order/requirements-core.txt && python order/scripts/fetch.py vendor
+      - run: pip install -r order/requirements-core.txt -r order/requirements-pp.txt pycocotools==2.0.10 && python order/scripts/fetch.py vendor
       - uses: actions/cache/restore@v4
         with:
           path: /home/runner/odb
           key: odb-english-v1
           fail-on-cache-miss: true
+      - uses: actions/cache/restore@v4
+        with:
+          path: /home/runner/drdoc
+          key: drdoc-dev-7a2bc38-v1
+          fail-on-cache-miss: true
       - uses: actions/download-artifact@v4
         with:
           path: art
-      - run: mkdir -p out && python order/scripts/aggregate.py art out/summary.md && cat out/summary.md >> "$GITHUB_STEP_SUMMARY"
+      - run: |
+          mkdir -p out
+          python order/scripts/aggregate_ro.py art out/order.md out/order.json
+          if ls art/layout-* >/dev/null 2>&1; then python order/layout/eval_layout.py art out/layout.md out/layout.json; fi
+          cat out/order.md >> "$GITHUB_STEP_SUMMARY"
+          [ -f out/layout.md ] && cat out/layout.md >> "$GITHUB_STEP_SUMMARY" || true
       - uses: actions/upload-artifact@v4
+        if: always()
         with:
           name: summary
           path: out/

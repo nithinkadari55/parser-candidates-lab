@@ -64,6 +64,38 @@ def pdfs():
     print("pdfs", os.listdir(PDFDIR))
 
 
+DRD = os.environ.get("DRD_DIR", os.path.join(os.path.expanduser("~"), "drdoc"))
+LMODELS = os.environ.get("LMODELS_DIR", os.path.join(os.path.expanduser("~"), "lmodels"))
+DRD_REV = "7a2bc3882dff68e883fb55d10d4df22865ce2b07"
+EGRET = ("ningpp/docling-layout-egret-medium-ONNX", "06b27d85c5a004eb024ca82f78e094fb7bf47e47", "model.onnx")
+PPL = ("Ralutet/PP-DocLayout-L-onnx-int8", "361fe8f94b5bbd2fe83d1cf3eb4b78203ba934b5", "pp-doclayout-l.onnx")
+
+
+def drdoc():
+    import time
+    from huggingface_hub import snapshot_download
+    for k in range(8):
+        try:
+            snapshot_download("2077AIDataFoundation/DrDocBench", repo_type="dataset", revision=DRD_REV, local_dir=DRD,
+                              allow_patterns=["dev/*/*/json/*.json", "dev/*/*/images/*.jpg", "README.md"], max_workers=4)
+            break
+        except Exception as e:
+            print("retry", k, str(e)[:200], flush=True)
+            time.sleep(60)
+    else:
+        sys.exit("drdoc download failed")
+    import glob
+    print("drdoc json", len(glob.glob(os.path.join(DRD, "dev", "*", "*", "json", "*.json"))),
+          "images", len(glob.glob(os.path.join(DRD, "dev", "*", "*", "images", "*.jpg"))))
+
+
+def lmodels():
+    from huggingface_hub import hf_hub_download
+    for sub, (repo, rev, fn) in (("egret", EGRET), ("ppl", PPL)):
+        p = hf_hub_download(repo, fn, revision=rev, local_dir=os.path.join(LMODELS, sub))
+        print(sub, p, os.path.getsize(p))
+
+
 if __name__ == "__main__":
     for what in sys.argv[1:]:
         globals()[what]()
