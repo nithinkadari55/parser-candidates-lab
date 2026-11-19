@@ -1,7 +1,9 @@
 {
  "sets_default": "own12,arxiv,unimer",
  "sets_with_hwe": "own12,arxiv,unimer,unimer_hwe",
- "hwe_models": ["doctr_formulanet"],
+ "hwe_models": [
+  "doctr_formulanet"
+ ],
  "shards": {
   "p2t15_fp32": 14,
   "p2t15_fp16": 16,
@@ -16,5 +18,34 @@
   "monkey_s_torch": 18,
   "monkey_s_onnx_int8": 14
  },
- "cdm_shards": 2
+ "cdm_shards": 2,
+ "timing_groups": {
+  "mfr_a": [
+   "p2t15_fp32",
+   "p2t15_int8",
+   "p2t15_int8_split",
+   "p2t15_fp16"
+  ],
+  "mfr_b": [
+   "p2t15_fp32",
+   "p2t15_int8",
+   "p2t15_int16",
+   "p2t15_int4_b32",
+   "p2t15_int4_b128"
+  ],
+  "reference": [
+   "p2t15_fp32",
+   "p2t15_int8",
+   "pp_formulanet_plus_s",
+   "unirec_0_1b",
+   "doctr_formulanet",
+   "doctr_formulanet_int8",
+   "monkey_s_onnx_fp32",
+   "monkey_s_onnx_int8"
+  ],
+  "monkey_torch": [
+   "p2t15_int8",
+   "monkey_s_torch"
+  ]
+ }
 }

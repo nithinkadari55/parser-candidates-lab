@@ -25,6 +25,7 @@ out = {"model": model, "threads": threads, "n": len(ts), "load_s": round(load_s,
        "mean_ms": round(statistics.mean(ts)), "mean_tokens": round(statistics.mean(toks), 1), "runaways": run,
        "ms_per_token_p50": round(statistics.median(a / max(b, 1) for a, b in zip(ts, toks)), 2)}
 print(json.dumps(out), flush=True)
-os.makedirs(os.path.join(ROOT, "results", "timing"), exist_ok=True)
+TD = os.path.join(ROOT, "results", "timing", os.environ.get("TIMING_GROUP", ""))
+os.makedirs(TD, exist_ok=True)
 json.dump({"summary": out, "ms": [round(x, 1) for x in ts], "tokens": toks, "ids": [it["id"] for it in items], "preds": preds},
-          open(os.path.join(ROOT, "results", "timing", model + ".json"), "w"))
+          open(os.path.join(TD, model + ".json"), "w"))

@@ -6,7 +6,7 @@ on:
       mode:
         description: "probe (prep + short probe of every model) or full (whole benchmark)"
         type: choice
-        options: [probe, full]
+        options: [probe, full, timing]
         default: probe
       only:
         description: "full mode: comma-separated model ids to run (empty = all)"
@@ -173,7 +173,7 @@ jobs:
         run: PROBE_N=24 python scripts/probe.py monkey_s_torch
 
   plan:
-    if: ${{ inputs.mode == 'full' }}
+    if: ${{ inputs.mode == 'full' || inputs.mode == 'timing' }}
     needs: [prep-models, prep-ref, prep-data, prep-monkey]
     runs-on: ubuntu-latest
     outputs:
@@ -190,6 +190,7 @@ jobs:
 
   acc:
     needs: plan
+    if: ${{ inputs.mode == 'full' }}
     runs-on: ubuntu-latest
     timeout-minutes: 125
     strategy:
@@ -241,6 +242,7 @@ jobs:
 
   timing:
     needs: plan
+    if: ${{ inputs.mode == 'full' || inputs.mode == 'timing' }}
     runs-on: ubuntu-latest
     timeout-minutes: 120
     strategy:
@@ -251,26 +253,23 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with: { python-version: "3.11", cache: pip, cache-dependency-path: "formula/requirements*.txt" }
-      - if: matrix.model != 'monkey_s_torch'
+      - if: matrix.env == 'main'
         run: pip install -r requirements.txt
-      - if: matrix.model == 'monkey_s_torch'
+      - if: matrix.env == 'monkey'
         run: |
           pip install -r requirements_monkey.txt
           git clone -q https://github.com/Yuliang-Liu/MonkeyOCRv2.git /tmp/MonkeyOCRv2 && git -C /tmp/MonkeyOCRv2 checkout -q $MONKEY_SHA
-      - if: startsWith(matrix.model, 'p2t15')
-        uses: actions/cache/restore@v4
+      - uses: actions/cache/restore@v4
         with:
           path: formula/models
           key: formula-mfr-v3-${{ hashFiles('formula/requirements.txt', 'formula/scripts/fetch_models.py', 'formula/scripts/quant.py', 'formula/scripts/split_dec.py', 'formula/scripts/build_variants.py', 'formula/scripts/mfr.py', 'formula/gt.json', 'formula/crops/**') }}
           fail-on-cache-miss: true
-      - if: startsWith(matrix.model, 'pp_') || startsWith(matrix.model, 'unirec') || startsWith(matrix.model, 'doctr')
-        uses: actions/cache/restore@v4
+      - uses: actions/cache/restore@v4
         with:
           path: formula/models_ref
           key: formula-ref-v2-${{ hashFiles('formula/requirements.txt', 'formula/scripts/fetch_ref.py') }}
           fail-on-cache-miss: true
-      - if: startsWith(matrix.model, 'monkey')
-        uses: actions/cache/restore@v4
+      - uses: actions/cache/restore@v4
         with:
           path: formula/models_monkey
           key: formula-monkey-v1-${{ hashFiles('formula/requirements_monkey.txt', 'formula/scripts/monkey_prep.py', 'formula/scripts/monkey_torch.py', 'formula/scripts/refmodels.py', 'formula/scripts/split_dec.py') }}
@@ -282,20 +281,23 @@ jobs:
             formula/manifests
           key: formula-data-v2-${{ hashFiles('formula/requirements.txt', 'formula/papers.json', 'formula/gt.json', 'formula/crops/**', 'formula/scripts/fetch_data.py', 'formula/scripts/arxiv_extract.py', 'formula/scripts/mk_unimer.py', 'formula/scripts/mk_wl.py', 'formula/scripts/texnorm.py', 'formula/scripts/taxonomy.py', 'formula/scripts/mk_timing.py', 'formula/scripts/mk_cdm_subset.py', 'formula/scripts/prune.py') }}
           fail-on-cache-miss: true
-      - name: Timing on the fixed 330-formula set, one model, 4 threads, nothing else in this job
+      - name: Timing on the fixed 330-formula set; all models of the group one after another on this machine, 4 threads
+        env:
+          TIMING_GROUP: ${{ matrix.group }}
         run: |
           nproc; free -m; lscpu | grep -E "Model name|^CPU\(s\)"
-          python scripts/timing.py ${{ matrix.model }} 4
-          lscpu | grep "Model name" > results/timing/${{ matrix.model }}.cpu.txt
+          mkdir -p results/timing/${{ matrix.group }}
+          lscpu | grep "Model name" > results/timing/${{ matrix.group }}/cpu.txt
+          for m in $(echo "${{ matrix.models }}" | tr ',' ' '); do python scripts/timing.py $m 4 || echo "timing failed for $m"; done
       - uses: actions/upload-artifact@v4
         with:
-          name: timing-${{ matrix.model }}
-          path: formula/results/timing/*
+          name: timing-${{ matrix.group }}
+          path: formula/results/timing
           retention-days: 30
 
   cdm:
     needs: [plan, acc]
-    if: ${{ !cancelled() && needs.plan.result == 'success' }}
+    if: ${{ !cancelled() && needs.plan.result == 'success' && inputs.mode == 'full' }}
     runs-on: ubuntu-latest
     timeout-minutes: 120
     strategy:
@@ -371,17 +373,22 @@ jobs:
         with: { pattern: acc-*, merge-multiple: true, path: formula/results/acc }
       - uses: actions/download-artifact@v4
         continue-on-error: true
-        with: { pattern: timing-*, merge-multiple: true, path: formula/results/timing }
+        with: { pattern: timing-*, path: formula/results/timing_dl }
       - uses: actions/download-artifact@v4
         continue-on-error: true
         with: { pattern: cdm-*, merge-multiple: true, path: formula/results/cdm }
+      - name: Collect grouped timing
+        run: |
+          mkdir -p results/timing
+          if [ -d results/timing_dl ]; then for d in results/timing_dl/*; do cp -r "$d"/* results/timing/ 2>/dev/null || true; done; fi
+          find results/timing -maxdepth 2 | head -50
       - name: Merge artifacts of earlier runs
         if: ${{ inputs.from_runs != '' }}
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           for id in $(echo "${{ inputs.from_runs }}" | tr ',' ' '); do
-            for kind in acc timing cdm; do
+            for kind in acc cdm; do
               mkdir -p /tmp/prev/$id/$kind
               gh run download $id -R ${{ github.repository }} -p "$kind-*" -D /tmp/prev/$id/$kind || true
               mkdir -p results/$kind

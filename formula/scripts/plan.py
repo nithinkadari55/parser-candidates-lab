@@ -9,9 +9,9 @@ if kind == "acc":
         sets = P["sets_with_hwe"] if m in P["hwe_models"] else P["sets_default"]
         inc += [{"model": m, "shard": k, "n": n, "sets": sets} for k in range(n)]
 elif kind == "timing":
-    inc = [{"model": m} for m in list(P["shards"]) + ["p2t15_int8_split", "monkey_s_onnx_fp32"]]
+    inc = [{"group": g, "models": ",".join(ms), "env": "monkey" if "monkey_s_torch" in ms else "main"} for g, ms in P["timing_groups"].items()]
 elif kind == "cdm":
     inc = [{"model": m, "shard": k, "n": P["cdm_shards"]} for m in P["shards"] for k in range(P["cdm_shards"])]
 if only:
-    inc = [x for x in inc if x["model"] in only]
+    inc = [x for x in inc if x.get("model", x.get("group")) in only]
 print(json.dumps({"include": inc}))

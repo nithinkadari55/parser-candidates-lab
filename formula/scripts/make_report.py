@@ -63,16 +63,17 @@ if M.get("raw_token_unimer"):
     for k, v in M["raw_token_unimer"].items():
         out.append(f"| {k} | {v['n']} | {v['token_exact%']} | {v['token_edit_sim']} | {v['bleu4_raw_tokens']} | {v['normalised_exact%']} |")
 
-tim = {}
-for p in glob.glob(os.path.join(R, "timing", "*.json")):
-    s = json.load(open(p))["summary"]
-    cpu = p[:-5] + ".cpu.txt"
-    s["cpu"] = open(cpu).read().split(":")[-1].strip() if os.path.exists(cpu) else ""
-    tim[s["model"]] = s
-out.append("\n## Size, speed and RAM (one clean job per model, same 330 formulas, onnxruntime 4 threads)\n\n| model | size MB | load s | p50 ms | p95 ms | mean ms | mean tokens | peak RSS MB | runaways | CPU |\n|---|---|---|---|---|---|---|---|---|---|")
-for m in models:
-    s = tim.get(m, {})
-    out.append(f"| {m} | {size_mb(m)} | {s.get('load_s', '')} | {s.get('p50_ms', '')} | {s.get('p95_ms', '')} | {s.get('mean_ms', '')} | {s.get('mean_tokens', '')} | {s.get('peak_rss_mb', '')} | {s.get('runaways', '')} | {s.get('cpu', '')} |")
+out.append("\n\n## Size on disk (encoder + decoder files)\n\n| model | size MB |\n|---|---|")
+for m in models + ["monkey_s_onnx_fp32"]:
+    out.append(f"| {m} | {size_mb(m)} |")
+for gdir in sorted(glob.glob(os.path.join(R, "timing", "*"))):
+    if not os.path.isdir(gdir):
+        continue
+    cpu = open(os.path.join(gdir, "cpu.txt")).read().split(":")[-1].strip() if os.path.exists(os.path.join(gdir, "cpu.txt")) else ""
+    out.append(f"\n## Speed and RAM, timing group {os.path.basename(gdir)} (one job, models one after another, CPU: {cpu}, 330 formulas, 4 threads)\n\n| model | size MB | load s | p50 ms | p95 ms | mean ms | mean tokens | ms/token p50 | peak RSS MB | runaways |\n|---|---|---|---|---|---|---|---|---|---|")
+    for p in sorted(glob.glob(os.path.join(gdir, "*.json"))):
+        s = json.load(open(p))["summary"]
+        out.append(f"| {s['model']} | {size_mb(s['model'])} | {s['load_s']} | {s['p50_ms']} | {s['p95_ms']} | {s['mean_ms']} | {s['mean_tokens']} | {s['ms_per_token_p50']} | {s['peak_rss_mb']} | {s['runaways']} |")
 
 cdm = {}
 for p in glob.glob(os.path.join(R, "cdm", "*.json")):
@@ -100,7 +101,7 @@ for label, path in [("MFR 1.5 variants", os.path.join(ROOT, "models", "variants_
 ri = os.path.join(ROOT, "models_ref", "models_info.json")
 if os.path.exists(ri):
     out.append("**reference model files (bytes)**: " + ", ".join(f"{k} {v['bytes']}" for k, v in json.load(open(ri)).items() if k.endswith(".onnx")) + "\n")
-tp = {os.path.basename(p)[:-5]: json.load(open(p)) for p in glob.glob(os.path.join(R, "timing", "*.json"))}
+tp = {os.path.basename(p)[:-5]: json.load(open(p)) for p in glob.glob(os.path.join(R, "timing", "*", "*.json"))}
 if "monkey_s_torch" in tp:
     ref = dict(zip(tp["monkey_s_torch"]["ids"], tp["monkey_s_torch"]["preds"]))
     for m in ("monkey_s_onnx_fp32", "monkey_s_onnx_int8"):
