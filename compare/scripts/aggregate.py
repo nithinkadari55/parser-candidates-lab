@@ -14,10 +14,26 @@ METHODS = [("dlrs", "docling.rs (our options)"), ("dlrs_formula", "docling.rs + 
 
 
 def jl(pattern):
-    rows = []
+    rows, seen = [], {}
     for f in sorted(glob.glob(pattern, recursive=True)):
-        rows += [json.loads(l) for l in open(f, encoding="utf-8") if l.strip()]
+        for l in open(f, encoding="utf-8"):
+            if not l.strip():
+                continue
+            r = json.loads(l)
+            k = r.get("img") or r.get("file")
+            if k:
+                k = (re.sub(r"-\d+\.jsonl$", "", os.path.basename(f)), k)
+                if k in seen:
+                    rows[seen[k]] = r
+                    continue
+                seen[k] = len(rows)
+            rows.append(r)
     return rows
+
+
+def last(pattern):
+    p = sorted(glob.glob(pattern, recursive=True))
+    return p[-1] if p else None
 
 
 def norm(s):
@@ -73,9 +89,9 @@ def main():
     # ODB accuracy (official evaluator)
     ev = {}
     for m, _ in METHODS:
-        p = glob.glob(os.path.join(art, "**", f"{m}-summary.json"), recursive=True)
+        p = last(os.path.join(art, "**", f"{m}-summary.json"))
         if p:
-            ev[m] = json.load(open(p[0], encoding="utf-8"))
+            ev[m] = json.load(open(p, encoding="utf-8"))
     S["odb_eval"] = ev
     md += ["## OmniDocBench (official end2end evaluator, quick_match)", ""]
     specs = [("Text edit distance (lower better)", "text_block", "Edit_dist"),
@@ -187,9 +203,9 @@ def main():
             md += [table(["marker", "docling.rs hits (kind/label/layer)", "doc2md lines"], rows), ""]
 
     # timing
-    tm = glob.glob(os.path.join(art, "**", "timing.json"), recursive=True)
+    tm = last(os.path.join(art, "**", "timing.json"))
     if tm:
-        T = json.load(open(tm[0]))
+        T = json.load(open(tm))
         S["timing"] = T
         md += ["## Timing job (one clean runner, sequential)", "", f"cpu={T.get('cpu')} set={T.get('set')}", ""]
         rows = []

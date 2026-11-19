@@ -6,9 +6,15 @@ on:
       reuse_run:
         description: "earlier run id: skip the model jobs and re-score / re-aggregate its artifacts"
         default: ""
+      only:
+        description: "comma list of jobs to run (empty = all): odb_dlrs,odb_dlrsf,odb_pp,own_dlrs,own_pp,office,timing,pp_onnx,windows,eval"
+        default: ""
+      extra_runs:
+        description: "space-separated earlier run ids whose artifacts the eval/aggregate jobs also use"
+        default: ""
 
 concurrency:
-  group: compare-${{ github.ref }}
+  group: compare-${{ github.ref }}-${{ inputs.only }}-${{ inputs.reuse_run }}
   cancel-in-progress: false
 
 env:
@@ -112,6 +118,7 @@ jobs:
 
   odb_dlrs:
     needs: prep
+    if: inputs.only == '' || contains(format(',{0},', inputs.only), ',odb_dlrs,')
     runs-on: ubuntu-latest
     timeout-minutes: 115
     strategy:
@@ -144,6 +151,7 @@ jobs:
 
   odb_dlrsf:
     needs: [prep, prep_formula]
+    if: inputs.only == '' || contains(format(',{0},', inputs.only), ',odb_dlrsf,')
     runs-on: ubuntu-latest
     timeout-minutes: 115
     strategy:
@@ -182,6 +190,7 @@ jobs:
 
   odb_pp:
     needs: [prep, prep_pp]
+    if: inputs.only == '' || contains(format(',{0},', inputs.only), ',odb_pp,')
     runs-on: ubuntu-latest
     timeout-minutes: 115
     strategy:
@@ -213,6 +222,7 @@ jobs:
 
   own_dlrs:
     needs: prep
+    if: inputs.only == '' || contains(format(',{0},', inputs.only), ',own_dlrs,')
     runs-on: ubuntu-latest
     timeout-minutes: 115
     strategy:
@@ -244,6 +254,7 @@ jobs:
 
   own_pp:
     needs: [prep, prep_pp]
+    if: inputs.only == '' || contains(format(',{0},', inputs.only), ',own_pp,')
     runs-on: ubuntu-latest
     timeout-minutes: 115
     strategy:
@@ -274,6 +285,7 @@ jobs:
 
   office:
     needs: prep
+    if: inputs.only == '' || contains(format(',{0},', inputs.only), ',office,')
     runs-on: ubuntu-latest
     timeout-minutes: 60
     steps:
@@ -308,6 +320,7 @@ jobs:
 
   timing:
     needs: [prep, prep_pp]
+    if: inputs.only == '' || contains(format(',{0},', inputs.only), ',timing,')
     runs-on: ubuntu-latest
     timeout-minutes: 115
     steps:
@@ -348,6 +361,7 @@ jobs:
 
   pp_onnx:
     needs: prep
+    if: inputs.only == '' || contains(format(',{0},', inputs.only), ',pp_onnx,')
     runs-on: ubuntu-latest
     timeout-minutes: 90
     steps:
@@ -367,6 +381,7 @@ jobs:
           key: cmp-corpus-cfb8df2
           fail-on-cache-miss: true
       - run: |
+          set +e
           imgs=$(python -c "import sys; sys.path.insert(0,'compare/scripts'); import common as C; s=C.selection_index(); print(' '.join(C.ODB + '/images/' + x['img'] for x in [s[1], s[100], s[180], s[260]]))")
           python compare/scripts/run_pp.py --engine onnxruntime --tag pp_onnx files 0 1 out/onnx $imgs /home/runner/corpus/pdf/2206.01062.pdf > out-onnx.log 2>&1; echo "rc=$?" >> out-onnx.log
           python compare/scripts/run_pp.py --engine onnxruntime --no-formula --tag pp_onnx_noformula files 0 1 out/onnx_nf $imgs /home/runner/corpus/pdf/2206.01062.pdf > out-onnx-nf.log 2>&1; echo "rc=$?" >> out-onnx-nf.log
@@ -380,8 +395,45 @@ jobs:
           name: pp-onnx
           path: out/
 
+  pp_probe:
+    needs: [prep, prep_pp]
+    if: contains(format(',{0},', inputs.only), ',pp_probe,')
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        cfg: ["3.3.1:", "3.3.1:--no-mkldnn", "3.3.0:", "3.2.2:", "3.2.0:"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: |
+          v=$(echo "${{ matrix.cfg }}" | cut -d: -f1)
+          pip install -r compare/requirements-pp.txt "paddlepaddle==$v" && pip freeze | grep -i paddle
+      - uses: actions/cache/restore@v4
+        with:
+          path: /home/runner/odb
+          key: ${{ env.ODB_KEY }}
+          fail-on-cache-miss: true
+      - uses: actions/cache/restore@v4
+        with:
+          path: /home/runner/corpus
+          key: cmp-corpus-cfb8df2
+          fail-on-cache-miss: true
+      - uses: actions/cache/restore@v4
+        with:
+          path: /home/runner/.paddlex/official_models
+          key: cmp-pp-models-3.7.2-v1
+      - run: |
+          flag=$(echo "${{ matrix.cfg }}" | cut -d: -f2)
+          imgs=$(python -c "import sys; sys.path.insert(0,'compare/scripts'); import common as C; s=C.selection_index(); print(' '.join(C.ODB + '/images/' + x['img'] for x in [s[1], s[100], s[180]]))")
+          python compare/scripts/run_pp.py $flag --tag probe files 0 1 out $imgs /home/runner/corpus/pdf/table_mislabeled_as_picture.pdf 2>&1 | grep -vE "^\s*$" | tail -80
+          cat out/results-probe-files-0.jsonl | cut -c1-400
+
   windows:
-    if: inputs.reuse_run == ''
+    if: inputs.reuse_run == '' && (inputs.only == '' || contains(format(',{0},', inputs.only), ',windows,'))
     runs-on: windows-latest
     timeout-minutes: 90
     continue-on-error: true
@@ -416,7 +468,7 @@ jobs:
 
   eval:
     needs: [odb_dlrs, odb_dlrsf, odb_pp]
-    if: ${{ !cancelled() }}
+    if: ${{ !cancelled() && (inputs.only == '' || contains(format(',{0},', inputs.only), ',eval,')) }}
     runs-on: ubuntu-latest
     timeout-minutes: 115
     strategy:
@@ -476,15 +528,16 @@ jobs:
           python-version: "3.11"
       - uses: actions/download-artifact@v4
         with:
-          path: art
-      - if: inputs.reuse_run != ''
-        uses: actions/download-artifact@v4
-        with:
-          path: art/old
-          run-id: ${{ inputs.reuse_run }}
-          github-token: ${{ github.token }}
+          path: art/zz-cur
+      - env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          for id in ${{ inputs.reuse_run }} ${{ inputs.extra_runs }}; do
+            gh run download "$id" -R "${{ github.repository }}" -D "art/run-$id" || echo "download $id failed"
+          done
+          ls art
       - run: |
-          rm -rf art/*/md art/*/json art/old/*/md art/old/*/json art/old/eval-*
+          rm -rf art/*/*/md art/*/*/json
           mkdir -p out && python compare/scripts/aggregate.py art out && cat out/summary.md >> "$GITHUB_STEP_SUMMARY"
       - uses: actions/upload-artifact@v4
         with:

@@ -31,12 +31,15 @@ def dl_hits(doc, marker):
         for it in doc.get(kind, []):
             parent = it.get("parent", {}).get("$ref")
             plab = res(parent).get("label") if parent and parent.count("/") == 2 else parent
-            if kind == "tables":
-                for c in (it.get("data") or {}).get("table_cells") or []:
+            if kind in ("tables", "pictures"):
+                cells = (it.get("data") or {}).get("table_cells") or []
+                if kind == "pictures":
+                    cells = (((it.get("meta") or {}).get("tabular_chart") or {}).get("chart_data") or {}).get("table_cells") or []
+                for c in cells:
                     if marker in (c.get("text") or ""):
                         hits.append(dict(kind=kind, label=it.get("label"), layer=it.get("content_layer"), parent=plab,
                                          row_span=c.get("row_span"), col_span=c.get("col_span"), column_header=c.get("column_header")))
-            else:
+            if kind != "tables":
                 s = (it.get("text") or "") + " " + (it.get("name") or "")
                 if marker in s:
                     hits.append(dict(kind=kind, label=it.get("label"), layer=it.get("content_layer"), parent=plab))

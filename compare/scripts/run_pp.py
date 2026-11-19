@@ -2,14 +2,14 @@
 
 usage: run_pp.py odb|own|files K N OUTDIR [--engine onnxruntime] [--no-formula] [--threads N] [paths...]
 """
-import argparse, json, os, re, sys, time
+import argparse, json, os, re, sys, time, traceback
 from collections import Counter
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import common as C
 
 
-def make(engine=None, no_formula=False, threads=None):
+def make(engine=None, no_formula=False, threads=None, no_mkldnn=False):
     from paddleocr import PPStructureV3
     kw = dict(device="cpu")
     if engine:
@@ -18,6 +18,8 @@ def make(engine=None, no_formula=False, threads=None):
         kw["use_formula_recognition"] = False
     if threads:
         kw["cpu_threads"] = threads
+    if no_mkldnn:
+        kw["enable_mkldnn"] = False
     return PPStructureV3(**kw), kw
 
 
@@ -94,12 +96,13 @@ def main():
     ap.add_argument("--engine")
     ap.add_argument("--no-formula", action="store_true")
     ap.add_argument("--threads", type=int)
+    ap.add_argument("--no-mkldnn", action="store_true")
     ap.add_argument("--tag", default="pp")
     a = ap.parse_args()
     os.makedirs(os.path.join(a.out, "md"), exist_ok=True)
     os.makedirs(os.path.join(a.out, "json"), exist_ok=True)
     t0 = time.perf_counter()
-    pipe, kw = make(a.engine, a.no_formula, a.threads)
+    pipe, kw = make(a.engine, a.no_formula, a.threads, a.no_mkldnn)
     load = time.perf_counter() - t0
     from importlib.metadata import version
     vers = {p: version(p) for p in ("paddleocr", "paddlex")}
@@ -115,6 +118,7 @@ def main():
                 try:
                     pages, dt = run(pipe, p)
                 except Exception as e:
+                    traceback.print_exc()
                     C.write_jsonl(f, dict(img=s["img"], bucket=s["bucket"], error=repr(e)[:400]))
                     continue
                 j, md, _ = pages[0]
@@ -129,6 +133,7 @@ def main():
                 try:
                     pages, dt = run(pipe, p)
                 except Exception as e:
+                    traceback.print_exc()
                     C.write_jsonl(f, dict(file=name, error=repr(e)[:400]))
                     print(name, "ERROR", e, flush=True)
                     continue
