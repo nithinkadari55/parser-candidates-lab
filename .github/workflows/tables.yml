@@ -39,7 +39,7 @@ jobs:
       - name: Matrix
         id: mx
         env:
-          MODELS: ${{ inputs.models || 'tatr,slanet1m,tableformer' }}
+          MODELS: ${{ github.event_name == 'workflow_dispatch' && inputs.models || 'tatr,slanet1m,tableformer' }}
         run: |
           python3 - <<'EOF' >> "$GITHUB_OUTPUT"
           import json, os
@@ -111,6 +111,7 @@ jobs:
 
   run:
     needs: prep
+    if: ${{ needs.prep.outputs.matrix != '{"include": []}' }}
     runs-on: ubuntu-latest
     timeout-minutes: 150
     strategy:
