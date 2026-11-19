@@ -27,7 +27,8 @@ def load_gt(setname, tid):
     return json.load(open(os.path.join(SETS, setname, tid + ".json"), encoding="utf-8"))
 
 
-def chunks(gt, pad):
+def chunks(gt, pad, ox=None, oy=None):
+    ox = -pad if ox is None else ox; oy = -pad if oy is None else oy
     if "words" in gt:
         src = [dict(text=w["text"], bbox=w["bbox"], gi=w.get("gi")) for w in gt["words"]]
     else:
@@ -35,10 +36,20 @@ def chunks(gt, pad):
     toks = []
     for t in src:
         x0, y0, x1, y1 = t["bbox"]
-        toks.append(dict(text=t["text"], bbox=[x0 + pad, y0 + pad, x1 + pad, y1 + pad], gi=t["gi"]))
+        toks.append(dict(text=t["text"], bbox=[x0 - ox, y0 - oy, x1 - ox, y1 - oy], gi=t["gi"]))
     toks.sort(key=lambda t: (t["bbox"][1], t["bbox"][0]))
     for i, t in enumerate(toks): t["span_num"] = i; t["line_num"] = 0; t["block_num"] = 0
     return toks
+
+
+def prep_image(im, mode, pad):
+    if mode == "trim":
+        g = np.asarray(im.convert("L")) < 245
+        ys, xs = np.where(g)
+        if len(xs):
+            x0, y0, x1, y1 = int(xs.min()), int(ys.min()), int(xs.max()) + 1, int(ys.max()) + 1
+            return padimg(im.crop((x0, y0, x1, y1)), pad), (x0 - pad, y0 - pad)
+    return padimg(im, pad), (-pad, -pad)
 
 
 def padimg(im, pad):
@@ -120,9 +131,11 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("model"); ap.add_argument("--sets", default=",".join(ALL_SETS))
     ap.add_argument("--shard", type=int, default=0); ap.add_argument("--nshards", type=int, default=1)
-    ap.add_argument("--pad", type=int, default=20); ap.add_argument("--threads", type=int, default=0)
+    ap.add_argument("--pad", type=int, default=-1); ap.add_argument("--threads", type=int, default=0)
     a = ap.parse_args()
-    M = MODELS_[a.model](a.threads)
+    base, _, mode = a.model.partition("-")
+    if a.pad < 0: a.pad = 4 if mode == "trim" else 20
+    M = MODELS_[base](a.threads)
     os.makedirs(os.path.join(OUT, "pred"), exist_ok=True)
     for s in a.sets.split(","):
         of = os.path.join(OUT, "pred", f"{a.model}_{s}_s{a.shard}.jsonl")
@@ -130,14 +143,14 @@ def main():
         with open(of, "w", encoding="utf-8") as f:
             for tid in shard_ids(s, a.shard, a.nshards):
                 gt = load_gt(s, tid)
-                im = padimg(Image.open(os.path.join(SETS, s, tid + ".png")).convert("RGB"), a.pad)
-                toks = chunks(gt, a.pad)
+                im, (ox, oy) = prep_image(Image.open(os.path.join(SETS, s, tid + ".png")).convert("RGB"), mode or "pad", a.pad)
+                toks = chunks(gt, a.pad, ox, oy)
                 rec = dict(id=tid)
                 try:
                     t = time.perf_counter()
                     cells, tm = M(im, toks)
                     rec["ms_total"] = (time.perf_counter() - t) * 1000; rec["ms_model"] = tm * 1000
-                    for c in cells: c["bbox"] = [c["bbox"][0] - a.pad, c["bbox"][1] - a.pad, c["bbox"][2] - a.pad, c["bbox"][3] - a.pad]
+                    for c in cells: c["bbox"] = [c["bbox"][0] + ox, c["bbox"][1] + oy, c["bbox"][2] + ox, c["bbox"][3] + oy]
                     rec["cells"] = cells
                 except Exception as e:
                     rec["cells"] = []; rec["err"] = repr(e)[:300]

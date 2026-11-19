@@ -12,8 +12,8 @@ on:
       timing:
         description: "run the timing job"
         default: "true"
-      reuse_run:
-        description: "earlier run id to take artifacts of models not run here (and speed if timing is off)"
+      reuse_runs:
+        description: "earlier artifacts to include, as runid:pattern pairs separated by spaces (e.g. 123:pred-tatr-* 123:speed)"
         default: ""
   push:
     paths:
@@ -43,7 +43,7 @@ jobs:
         run: |
           python3 - <<'EOF' >> "$GITHUB_OUTPUT"
           import json, os
-          n = {"tatr": 4, "slanet1m": 2, "tableformer": 8}
+          n = {"tatr": 4, "slanet1m": 2, "tableformer": 8, "tatr-trim": 4, "slanet1m-trim": 2}
           inc = [dict(model=m, shard=i, nshards=n[m]) for m in os.environ["MODELS"].split(",") if m in n for i in range(n[m])]
           print("matrix=" + json.dumps({"include": inc}))
           EOF
@@ -164,7 +164,7 @@ jobs:
             python bench_models.py ${{ matrix.model }} --shard ${{ matrix.shard }} --nshards ${{ matrix.nshards }}
           fi
       - name: Our 7 tables
-        if: matrix.shard == 0
+        if: matrix.shard == 0 && !contains(matrix.model, '-')
         working-directory: tables/src
         continue-on-error: true
         run: python run_ours.py ${{ matrix.model }} | tee ../work/out/pred/ours_${{ matrix.model }}.txt
@@ -240,19 +240,18 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           path: results
-      - name: Artifacts from an earlier run
-        if: ${{ inputs.reuse_run != '' && inputs.reuse_run != null }}
+      - name: Artifacts from earlier runs
+        if: ${{ inputs.reuse_runs != '' && inputs.reuse_runs != null }}
         env:
           GH_TOKEN: ${{ github.token }}
-          MODELS: ${{ inputs.models }}
-          TIMING: ${{ inputs.timing }}
+          REUSE: ${{ inputs.reuse_runs }}
         run: |
-          mkdir -p results/prev
-          for m in tatr slanet1m tableformer; do
-            case ",$MODELS," in *",$m,"*) ;; *) gh run download ${{ inputs.reuse_run }} -R ${{ github.repository }} -p "pred-$m-*" -D results/prev ;; esac
+          for e in $REUSE; do
+            id=${e%%:*}; pat=${e#*:}
+            gh run download "$id" -R ${{ github.repository }} -p "$pat" -D "results/prev-$id"
           done
-          if [ "$TIMING" != "true" ]; then gh run download ${{ inputs.reuse_run }} -R ${{ github.repository }} -n speed -D results/speed; fi
-          ls -R results | head -50
+          if [ ! -d results/speed ]; then d=$(ls -d results/prev-*/speed 2>/dev/null | head -1); [ -n "$d" ] && cp -r "$d" results/speed; fi
+          ls results results/prev-* | head -80
       - name: Aggregate
         run: |
           python tables/src/agg.py results > /dev/null

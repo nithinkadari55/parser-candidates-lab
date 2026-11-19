@@ -25,6 +25,7 @@ def place(src, rel):
 
 
 def main(which):
+    which = which.split("-")[0]
     if which == "tatr":
         place(hf_hub_download("Xenova/table-transformer-structure-recognition-v1.1-all", "onnx/model_quantized.onnx"), "tatr/model_quantized.onnx")
         os.makedirs(TATR_SRC, exist_ok=True)

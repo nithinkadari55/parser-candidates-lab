@@ -1,6 +1,6 @@
 import os, sys, json, glob, statistics
 
-MODELS = ["tatr", "slanet1m", "tableformer"]
+MODELS = [m for m in os.environ.get("AGG_MODELS", "tatr,slanet1m,tableformer,tatr-trim,slanet1m-trim").split(",")]
 SETS = ["ptn", "ftn", "pt1m", "icdar"]
 BUCKETS = ["simple", "medium", "edge", "complex"]
 TAGS = ["ruled", "borderless", "multirow_header", "nested_header", "hier_first_col", "wide", "long", "many_spans", "multiline", "empty_cells", "footnote_marks", "tiny", "split_page"]
@@ -43,7 +43,7 @@ def main():
     data = {(m, s): load(root, m, s) for m in MODELS for s in SETS}
 
     def common(s):
-        ds = [data[(m, s)] for m in MODELS if data[(m, s)]]
+        ds = [data[(m, s)] for m in MODELS if data[(m, s)] and "-" not in m]
         return set.intersection(*(set(d) for d in ds)) if ds else set()
     P("## All tables per model\n" + H)
     for s in SETS:

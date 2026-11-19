@@ -159,8 +159,16 @@ def main(name):
         for idx, T in lst:
             r = allrecs[idx]
             tid = f"{name}_{idx:05d}"
-            Image.open(io.BytesIO(r["image"]["bytes"])).convert("RGB").save(os.path.join(out, tid + ".png"))
-            gt = dict(id=tid, filename=r["filename"], html=r["html"], cells=[dict(text="".join(c["tokens"]), bbox=c["bbox"][:4]) for c in r["cells"][0]], tags=T)
+            im = Image.open(io.BytesIO(r["image"]["bytes"])).convert("RGB")
+            cells = [dict(text="".join(c["tokens"]), bbox=c["bbox"][:4]) for c in r["cells"][0]]
+            if r.get("table_bbox"):
+                W, Hh = im.size; x0, y0, x1, y1 = r["table_bbox"]
+                x0, y0, x1, y1 = max(0, x0 - 4), max(0, y0 - 4), min(W, x1 + 4), min(Hh, y1 + 4)
+                im = im.crop((x0, y0, x1, y1))
+                for c in cells:
+                    if c["text"].strip(): c["bbox"] = [c["bbox"][0] - x0, c["bbox"][1] - y0, c["bbox"][2] - x0, c["bbox"][3] - y0]
+            im.save(os.path.join(out, tid + ".png"))
+            gt = dict(id=tid, filename=r["filename"], html=r["html"], cells=cells, tags=T, table_bbox=r.get("table_bbox"))
             json.dump(gt, open(os.path.join(out, tid + ".json"), "w", encoding="utf-8"))
             index.append(tid)
     json.dump(sorted(index), open(os.path.join(out, "index.json"), "w"))
