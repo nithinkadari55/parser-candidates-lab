@@ -71,6 +71,27 @@ EGRET = ("ningpp/docling-layout-egret-medium-ONNX", "06b27d85c5a004eb024ca82f78e
 PPL = ("Ralutet/PP-DocLayout-L-onnx-int8", "361fe8f94b5bbd2fe83d1cf3eb4b78203ba934b5", "pp-doclayout-l.onnx")
 
 
+PADDLEX_REV = "4c968d30b9d0d4a693d9eaaef0881c20f8d7d0e0"
+
+
+def paddlex():
+    """PaddleX layout_parsing xycut_enhanced + the three modules it imports (Apache-2.0), into vendor/pdx_lp.
+    The two imports of OCR-pipeline modules in layout_parsing/utils.py are stubbed (only used by OCR helpers)."""
+    base = f"https://raw.githubusercontent.com/PaddlePaddle/PaddleX/{PADDLEX_REV}/paddlex/inference/pipelines/layout_parsing/"
+    root = os.path.join(ORDER, "vendor", "pdx_lp")
+    os.makedirs(os.path.join(root, "xycut_enhanced"), exist_ok=True)
+    for rel in ("setting.py", "layout_objects.py", "utils.py", "xycut_enhanced/__init__.py", "xycut_enhanced/utils.py", "xycut_enhanced/xycuts.py"):
+        dst = os.path.join(root, rel)
+        urllib.request.urlretrieve(base + rel, dst)
+        if rel == "utils.py":
+            s = open(dst, encoding="utf-8").read()
+            s = s.replace("from ..components import convert_points_to_boxes", "convert_points_to_boxes = None")
+            s = s.replace("from ..ocr.result import OCRResult", "OCRResult = object")
+            open(dst, "w", encoding="utf-8").write(s)
+    open(os.path.join(root, "__init__.py"), "w").close()
+    print("vendored paddlex xycut_enhanced at", PADDLEX_REV)
+
+
 def drdoc():
     import time
     from huggingface_hub import snapshot_download

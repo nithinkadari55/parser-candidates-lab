@@ -5,7 +5,7 @@ import collections, glob, json, os, statistics, sys
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 sys.path.insert(0, os.path.join(os.path.dirname(HERE), "layout"))
-import ro, addons, datasets
+import ro, addons, datasets, pdx_order
 
 A, OUT, OUTJ = sys.argv[1], sys.argv[2], sys.argv[3]
 lines, RES = [], {}
@@ -152,6 +152,14 @@ def pipeline(pages, rects):
                     continue
                 items.append(dict(label=models.TO_RO[u], score=d[1], box=d[2:6], order=d[6] if len(d) > 6 else None))
             items = dedupe(items)
+            alli = dedupe([dict(label=d[0], score=d[1], box=d[2:6]) for d in r["dets"] if d[1] >= 0.5])
+            if alli:
+                pl = [d["label"] if m in ("ppl", "ppv3") else pdx_order.FROM_DOCLING.get(d["label"], "text") for d in alli]
+                o = safe(lambda: pdx_order.order([d["box"] for d in alli], pl, [""] * len(alli), W, H)[0])
+                if o is not None:
+                    s = evaluate(p, [d["box"] for d in alli], o)
+                    if s:
+                        rec[f"{m}:pdx_xycut_enhanced"] = s
             if not items:
                 continue
             regs = [i["box"] for i in items]
@@ -168,6 +176,14 @@ def pipeline(pages, rects):
                 if s:
                     rec[k] = s
         r = dl.get(p["id"])
+        if r and r["items"]:
+            alli = r["items"]
+            o = safe(lambda: pdx_order.order([i["box"] for i in alli], [pdx_order.FROM_DOCLING.get(i["label"], "text") for i in alli],
+                                             [i.get("text", "") for i in alli], W, H)[0])
+            if o is not None:
+                s = evaluate(p, [i["box"] for i in alli], o)
+                if s:
+                    rec["dlrs:pdx_xycut_enhanced"] = s
         if r:
             its = [i for i in r["items"] if not i["furniture"] and i["label"] not in ("page_header", "page_footer")]
             if its:
@@ -195,10 +211,10 @@ def main():
         for r in recs:
             r["ds"] = ds
         allrecs += recs
-        base = ["docling_rb", "xycut_xfirst", "xycutpp", "xycutpp+fig", "xycutpp+box", "xycutpp+num", "xycutpp+tiny", "xycutpp+num+tiny", "xycutpp+all"]
+        base = ["docling_rb", "pdx_xycut_enhanced", "xycut_xfirst", "xycutpp", "xycutpp+fig", "xycutpp+box", "xycutpp+num", "xycutpp+tiny", "xycutpp+num+tiny", "xycutpp+all"]
         table(recs, base, f"{title}: ground-truth body boxes ({len(recs)} pages)",
               "cells: mean Kendall tau / mean normalised edit distance / % pages fully correct")
-        full = ["full:docling_rb", "full:xycutpp", "full:xycutpp+deco", "full:xycutpp+all-deco", "full:xycutpp+all"]
+        full = ["full:docling_rb", "full:pdx_xycut_enhanced", "full:xycutpp", "full:xycutpp+deco", "full:xycutpp+all-deco", "full:xycutpp+all"]
         table([r for r in recs if "full:xycutpp" in r], full, f"{title}: all boxes incl. headers/footers/page numbers (no labels for XY-Cut++; docling gets labels), scored on body",
               "cells: tau / edit distance / % exact. deco = repeated-decoration removal")
     if allrecs:
@@ -207,14 +223,16 @@ def main():
         P("|---|---|---|---|---|---|---|---|")
         pairs = [(a, "xycutpp") for a in ("xycutpp+fig", "xycutpp+box", "xycutpp+num", "xycutpp+tiny", "xycutpp+num+tiny", "xycutpp+all")]
         pairs += [("full:xycutpp+deco", "full:xycutpp"), ("full:xycutpp+all", "full:xycutpp"), ("full:xycutpp+all", "full:xycutpp+all-deco"),
-                  ("xycutpp", "docling_rb"), ("xycutpp+all", "docling_rb"), ("xycutpp", "xycut_xfirst")]
+                  ("xycutpp", "docling_rb"), ("xycutpp+all", "docling_rb"), ("xycutpp", "xycut_xfirst"),
+                  ("pdx_xycut_enhanced", "xycutpp"), ("pdx_xycut_enhanced", "docling_rb"), ("xycutpp+all", "pdx_xycut_enhanced"),
+                  ("full:pdx_xycut_enhanced", "full:xycutpp"), ("full:xycutpp+all", "full:pdx_xycut_enhanced")]
         for a, b in pairs:
             for sub, rs in (("all", allrecs), ("test", [r for r in allrecs if r["split"] == "test"]),
                             ("complex+edge", [r for r in allrecs if r["bucket"] == "complex" or datasets.edge(r["tags"])])):
                 w, l, pv, dt, ex, n = sign(rs, a, b)
                 RES.setdefault("sign", []).append(dict(a=a, b=b, subset=sub, n=n, a_only=w, b_only=l, p=pv, dtau=dt, dexact=ex))
                 P(f"| {a} vs {b} | {sub} | {n} | {w} | {l} | {pv:.2g} | {dt:+.4f} | {ex:+.1f} |")
-        table(allrecs, ["docling_rb", "xycutpp", "xycutpp+all", "full:xycutpp+all"], f"Both datasets together ({len(allrecs)} pages)", "cells: tau / ed / % exact")
+        table(allrecs, ["docling_rb", "pdx_xycut_enhanced", "xycutpp", "xycutpp+all", "full:pdx_xycut_enhanced", "full:xycutpp+all"], f"Both datasets together ({len(allrecs)} pages)", "cells: tau / ed / % exact")
     rects = {r["id"]: r.get("rects", []) for r in allrecs}
     pages = datasets.pages("odb") + datasets.pages("drdoc")
     pl = pipeline(pages, rects)
@@ -222,7 +240,8 @@ def main():
     if pl:
         ms = ["dlrs:docling_rs_order", "dlrs:xycutpp", "dlrs:xycutpp+all", "heron:xycutpp", "heron:xycutpp+fig+box+tiny", "heron_int8:xycutpp",
               "egret:xycutpp", "egret:xycutpp+fig+box+tiny", "ppl:xycutpp", "ppl:xycutpp+fig+box+tiny", "ppv3:xycutpp", "ppv3:xycutpp+fig+box+tiny",
-              "ppv3:own_order", "heron:docling_rb", "egret:docling_rb", "ppl:docling_rb", "ppv3:docling_rb"]
+              "ppv3:own_order", "ppv3:pdx_xycut_enhanced", "heron:pdx_xycut_enhanced", "egret:pdx_xycut_enhanced", "ppl:pdx_xycut_enhanced",
+              "dlrs:pdx_xycut_enhanced", "heron:docling_rb", "egret:docling_rb", "ppl:docling_rb", "ppv3:docling_rb"]
         ms = [m for m in ms if any(m in r for r in pl)]
         for ds in ("odb", "drdoc"):
             rs = [r for r in pl if r["ds"] == ds]
@@ -233,12 +252,14 @@ def main():
         P("|---|---|---|---|---|---|---|")
         for a, b in [("ppv3:xycutpp", "ppv3:own_order"), ("ppv3:xycutpp+fig+box+tiny", "ppv3:own_order"), ("dlrs:xycutpp", "dlrs:docling_rs_order"),
                      ("dlrs:xycutpp+all", "dlrs:docling_rs_order"), ("egret:xycutpp", "ppv3:own_order"), ("heron:xycutpp", "ppv3:own_order"),
-                     ("ppl:xycutpp", "ppv3:own_order"), ("egret:xycutpp+fig+box+tiny", "ppv3:own_order")]:
+                     ("ppl:xycutpp", "ppv3:own_order"), ("egret:xycutpp+fig+box+tiny", "ppv3:own_order"),
+                     ("ppv3:pdx_xycut_enhanced", "ppv3:own_order"), ("ppv3:xycutpp", "ppv3:pdx_xycut_enhanced"),
+                     ("heron:pdx_xycut_enhanced", "heron:xycutpp"), ("dlrs:pdx_xycut_enhanced", "dlrs:xycutpp")]:
             w, l, pv, dt, ex, n = sign(pl, a, b)
             RES.setdefault("pipeline_sign", []).append(dict(a=a, b=b, n=n, a_only=w, b_only=l, p=pv, dtau=dt, dexact=ex))
             P(f"| {a} vs {b} | {n} | {w} | {l} | {pv:.2g} | {dt:+.4f} | {ex:+.1f} |")
     P("\n### Logic cost per page (GT boxes, from the ro jobs; shared runners, indicative)")
-    for m in ("docling_rb", "xycutpp", "xycutpp+all", "full:xycutpp+all"):
+    for m in ("docling_rb", "pdx_xycut_enhanced", "xycutpp", "xycutpp+all", "full:xycutpp+all"):
         v = [r[m]["ms"] for r in allrecs if m in r and "ms" in r[m]]
         if v:
             v.sort()

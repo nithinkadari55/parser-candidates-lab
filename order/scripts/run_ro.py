@@ -1,6 +1,6 @@
 import json, os, sys, time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-import ro, addons, datasets
+import ro, addons, datasets, pdx_order
 
 ADD = {
     "xycutpp+fig": {"fig"}, "xycutpp+box": {"box"}, "xycutpp+num": {"num"}, "xycutpp+tiny": {"tiny"},
@@ -64,10 +64,19 @@ def main():
                 run("xycutpp", lambda: ro.xycutpp(p["boxes"], W, H))
                 for name, a in ADD.items():
                     run(name, lambda a=a: addons.order(p["boxes"], p["labels"], p["texts"], W, H, rects, a))
+                pdx = {}
+
+                def pdx_run(bx, cats, tx):
+                    o, miss = pdx_order.order(bx, [pdx_order.FROM_ODB.get(c, "text") for c in cats], tx, W, H)
+                    pdx["missing"] = pdx.get("missing", 0) + miss
+                    return o
+                run("pdx_xycut_enhanced", lambda: pdx_run(p["boxes"], p["cats"], p["texts"]))
                 if nbody == len(gt):
                     run("full:xycutpp", lambda: ro.xycutpp(p["fboxes"], W, H), full=True)
                     for name, a in FULL_ADD.items():
                         run(name, lambda a=a: addons.order(p["fboxes"], p["flabels"], p["ftexts"], W, H, rects, a, dset), full=True)
+                    run("full:pdx_xycut_enhanced", lambda: pdx_run(p["fboxes"], p["fcats"], p["ftexts"]), full=True)
+                rec["pdx_missing"] = pdx.get("missing", 0)
             f.write(json.dumps(rec) + "\n")
     print(ds, group, k, n, len(ps))
 

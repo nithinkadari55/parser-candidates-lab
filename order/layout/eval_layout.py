@@ -128,7 +128,7 @@ def coco_eval(G, D, merge_title):
                 continue
             dts.append(dict(image_id=n, category_id=cid[c], bbox=[x0, y0, x1 - x0, y1 - y0], score=s))
     gt = COCO()
-    gt.dataset = dict(images=imgs, annotations=anns, categories=[dict(id=i, name=c) for c, i in cid.items()])
+    gt.dataset = dict(info={}, licenses=[], images=imgs, annotations=anns, categories=[dict(id=i, name=c) for c, i in cid.items()])
     gt.createIndex()
     if not dts:
         return None
