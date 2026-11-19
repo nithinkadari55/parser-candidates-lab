@@ -260,8 +260,8 @@ jobs:
           python tables/src/agg.py results > /dev/null
           {
             echo "# Table structure benchmark"
-            echo "## Timing"; cat results/speed/cpu.txt 2>/dev/null; echo '```'; cat results/speed/speed.jsonl 2>/dev/null; echo '```'
-            echo "## Our 7 tables (cell accuracy vs truth.json)"; echo '```'; grep -h "MEAN cell_acc" results/*/ours_*.txt 2>/dev/null; echo '```'
+            echo "## Timing"; cat results/speed/cpu.txt 2>/dev/null || true; echo '```'; cat results/speed/speed.jsonl 2>/dev/null || true; echo '```'
+            echo "## Our 7 tables (cell accuracy vs truth.json)"; echo '```'; grep -h "MEAN cell_acc" results/*/ours_*.txt results/*/*/ours_*.txt 2>/dev/null || true; echo '```'
             cat results/report.md
           } >> "$GITHUB_STEP_SUMMARY"
       - uses: actions/upload-artifact@v4
