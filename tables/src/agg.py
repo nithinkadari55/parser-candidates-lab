@@ -78,6 +78,27 @@ def main():
     def common(s, ms=None):
         ds = [data[(m, s)] for m in (ms or have) if data[(m, s)]]
         return set.intersection(*(set(d) for d in ds)) if ds else set()
+    def cell(rs, f):
+        x = summ(rs) if rs else None
+        if not x: return "-"
+        return f(x)
+    for title, f in (("TEDS-Struct (GriTS-Top where TEDS is capped)", lambda x: f"{(x['teds_s'] if x['teds_s'] is not None else x['grits_top'] or 0):.3f}"),
+                     ("rows+cols exact %", lambda x: f"{x['rc']:.0f}"), ("tables with merged-row errors %", lambda x: "n/a" if x["merged_tab"] is None else f"{x['merged_tab']:.0f}")):
+        P(f"## 0. Compact: {title}, per dataset/bucket (all tables each model has)")
+        P("| set/bucket | n | " + " | ".join(have) + " |\n|" + "---|" * (len(have) + 2))
+        for s in SETS:
+            for b in [None] + BUCKETS:
+                rows_ = {m: [r for r in (data[(m, s)] or {}).values() if b is None or r["bucket"] == b] for m in have}
+                n = max((len(v) for v in rows_.values()), default=0)
+                if n: P(f"| {s}/{b or 'all'} | {n} | " + " | ".join(cell(rows_[m], f) for m in have) + " |")
+        P("")
+    P("## 0b. Compact per tag, TEDS-Struct (GriTS-Top where capped), all datasets pooled")
+    P("| tag | n | " + " | ".join(have) + " |\n|" + "---|" * (len(have) + 2))
+    for t in TAGS:
+        rows_ = {m: [r for s in SETS for r in (data[(m, s)] or {}).values() if r["tags"].get(t)] for m in have}
+        n = max((len(v) for v in rows_.values()), default=0)
+        if n: P(f"| {t} | {n} | " + " | ".join(cell(rows_[m], lambda x: f"{(x['teds_s'] if x['teds_s'] is not None else x['grits_top'] or 0):.3f}") for m in have) + " |")
+    P("")
     P("## 1. Per dataset (all tables each model has)\n" + H)
     for s in SETS:
         for m in have:
