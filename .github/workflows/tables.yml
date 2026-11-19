@@ -12,6 +12,9 @@ on:
       timing:
         description: "run the timing job"
         default: "true"
+      probe:
+        description: "only run the data-format probe"
+        default: "false"
       reuse_runs:
         description: "earlier artifacts to include, as runid:pattern pairs separated by spaces (e.g. 123:pred-tatr-* 123:speed)"
         default: ""
@@ -26,7 +29,20 @@ env:
   HF_HUB_DISABLE_PROGRESS_BARS: "1"
 
 jobs:
+  probe:
+    if: ${{ inputs.probe == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install huggingface_hub==2.4.0 pyarrow==26.0.1
+      - run: python tables/src/probe.py
+
   prep:
+    if: ${{ inputs.probe != 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 90
     outputs:
@@ -227,7 +243,7 @@ jobs:
 
   aggregate:
     needs: [run, timing]
-    if: always()
+    if: ${{ always() && inputs.probe != 'true' }}
     runs-on: ubuntu-latest
     permissions:
       actions: read
