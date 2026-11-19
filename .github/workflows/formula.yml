@@ -22,7 +22,7 @@ on:
       - ".github/workflows/formula.yml"
 
 concurrency:
-  group: formula-${{ github.ref }}-${{ inputs.mode || 'probe' }}
+  group: formula-${{ github.ref }}-${{ inputs.mode || 'probe' }}-${{ inputs.only }}-${{ inputs.from_runs }}
   cancel-in-progress: true
 
 permissions:
