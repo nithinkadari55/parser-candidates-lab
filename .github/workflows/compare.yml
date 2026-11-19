@@ -403,7 +403,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        cfg: ["3.3.1:", "3.3.1:--no-mkldnn", "3.3.0:", "3.2.2:", "3.2.0:"]
+        cfg: ["3.3.1:--no-mkldnn", "3.3.0:", "3.2.2:", "3.2.0:", "3.1.1:"]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -411,7 +411,7 @@ jobs:
           python-version: "3.11"
       - run: |
           v=$(echo "${{ matrix.cfg }}" | cut -d: -f1)
-          pip install -r compare/requirements-pp.txt "paddlepaddle==$v" && pip freeze | grep -i paddle
+          pip install "paddlepaddle==$v" "paddleocr[doc-parser,doc2md]==3.7.0" paddlex==3.7.2 && pip freeze | grep -i paddle
       - uses: actions/cache/restore@v4
         with:
           path: /home/runner/odb
@@ -428,6 +428,7 @@ jobs:
           key: cmp-pp-models-3.7.2-v1
       - run: |
           flag=$(echo "${{ matrix.cfg }}" | cut -d: -f2)
+          (while true; do free -m | awk 'NR==2{print "MEM used=" $3 " avail=" $7}'; sleep 10; done) &
           imgs=$(python -c "import sys; sys.path.insert(0,'compare/scripts'); import common as C; s=C.selection_index(); print(' '.join(C.ODB + '/images/' + x['img'] for x in [s[1], s[100], s[180]]))")
           python compare/scripts/run_pp.py $flag --tag probe files 0 1 out $imgs /home/runner/corpus/pdf/table_mislabeled_as_picture.pdf 2>&1 | grep -vE "^\s*$" | tail -80
           cat out/results-probe-files-0.jsonl | cut -c1-400
