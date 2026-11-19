@@ -1,0 +1,16 @@
+{
+ "f01_a2": "a^{2}+8=12",
+ "f02_eq1_full": "\\begin{array}{l} l_{box}=\\lambda_{iou}l_{iou}+\\lambda_{l1} \\\\ l=\\lambda l_{s}+(1-\\lambda)l_{box} \\end{array}",
+ "f03_eq1_line1": "l_{box}=\\lambda_{iou}l_{iou}+\\lambda_{l1}",
+ "f04_eq1_line2": "l=\\lambda l_{s}+(1-\\lambda)l_{box}",
+ "f05_eq2_text": "\\begin{array}{c} \\text{Image width and height} \\leq 1024 \\text{ pixels} \\\\ \\text{Structural tags length} \\leq 512 \\text{ tokens.} \\end{array}",
+ "f06_inl_lambda01": "\\lambda\\in[0,1]",
+ "f07_inl_lambdaR": "\\lambda_{iou},\\lambda_{l1}\\in\\mathbb{R}",
+ "f08_eq3_teds": "\\mathrm{TEDS}(T_{a},T_{b})=1-\\frac{\\mathrm{EditDist}(T_{a},T_{b})}{\\max(|T_{a}|,|T_{b}|)}",
+ "f09_eq4_full": "\\begin{array}{l} alignment=\\arg\\min_{c}\\{D_{c}\\} \\\\ D_{c}=max\\{x_{c}\\}-min\\{x_{c}\\} \\end{array}",
+ "f10_eq4_argmin": "alignment=\\arg\\min_{c}\\{D_{c}\\}",
+ "f11_eq4_dc": "D_{c}=max\\{x_{c}\\}-min\\{x_{c}\\}",
+ "f12_emc2": "E=mc^{2}",
+ "n01_chart": "(non-formula: bar chart)",
+ "n02_table": "(non-formula: table)"
+}
