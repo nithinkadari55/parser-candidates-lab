@@ -112,15 +112,15 @@ def show(g, hdr, maxw=14):
 
 
 def run_model(name):
-    from bench_models import TATR, SLANet
-    m = {"tatr": TATR, "slanet1m": SLANet}[name](0)
-    if name == "tatr": m.keep_text = True
+    from bench_models import MODELS_
+    m = MODELS_[name](0)
+    if name.startswith("tatr"): m.keep_text = True
     res = {}
     for key in TABLES:
         im, box = crop(key); toks = tokens(key, im, box)
         cells, _ = m(im, copy.deepcopy(toks))
         cc = [dict(rows=list(range(c["r0"], c["r1"])), cols=list(range(c["c0"], c["c1"])), bbox=c["bbox"], header=c["header"], text=c.get("text", "")) for c in cells]
-        if name == "slanet1m": fill(cc, copy.deepcopy(toks))
+        if not name.startswith("tatr"): fill(cc, copy.deepcopy(toks))
         res[key] = (score(key, cc), grid(cc))
     return res
 

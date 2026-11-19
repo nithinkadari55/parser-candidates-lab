@@ -1,11 +1,12 @@
 import sys, os, json, re, time, html as H, argparse
-GRITS_MAX = 600
+GRITS_MAX = 1200
+TEDS_MAX = 1200
 from multiprocessing import Pool
 import paths
 from paths import SETS
 from prep_sets import parse_html, place
 TAGRE = re.compile(r"<[^>]+>")
-TAGS = ["ruled", "borderless", "multirow_header", "nested_header", "hier_first_col", "wide", "long", "many_spans", "multiline", "empty_cells", "footnote_marks", "tiny", "split_page", "rotated"]
+TAGS = ["ruled", "borderless", "multirow_header", "nested_header", "hier_first_col", "wide", "long", "very_wide", "very_long", "many_spans", "multiline", "empty_cells", "footnote_marks", "tiny", "split_page", "rotated", "rotated_page"]
 
 
 def gt_html(gt, plain=False):
@@ -84,14 +85,18 @@ def score_one(args):
     res["ms_model"] = rec.get("ms_model"); res["ms_total"] = rec.get("ms_total"); res["err"] = rec.get("err")
     res["gt_rows"], res["gt_cols"] = GR, GC
     if not cells:
-        res.update(teds=0.0, teds_s=0.0, grits_top=0.0, grits_con=0.0, rows=0, cols=0, rc_exact=False, merged_row_err=0, header_ok=(None if not thead else False), fail=True, n_cells=0)
+        tz = None if GR * GC > TEDS_MAX else 0.0; gz = None if GR * GC > GRITS_MAX else 0.0
+        res.update(teds=tz, teds_s=tz, grits_top=gz, grits_con=gz, rows=0, cols=0, rc_exact=False, merged_row_err=0, header_ok=(None if not thead else False), fail=True, n_cells=0)
         return res
     R = max(c["r1"] for c in cells); C = max(c["c1"] for c in cells)
     ch = gt_chunks(gt)
     texts, members = fill(cells, ch)
     ph = pred_html(R, C, cells, texts); gh = gt_html(gt)
     tf = TEDS(structure_only=False, ignore_nodes=["thead", "tbody"]); ts = TEDS(structure_only=True, ignore_nodes=["thead", "tbody"])
-    t1 = time.time(); res["teds"] = tf.evaluate(ph, gh); res["teds_s"] = ts.evaluate(ph, gh); res["teds_sec"] = round(time.time() - t1, 2)
+    if GR * GC <= TEDS_MAX and R * C <= TEDS_MAX:
+        t1 = time.time(); res["teds"] = tf.evaluate(ph, gh); res["teds_s"] = ts.evaluate(ph, gh); res["teds_sec"] = round(time.time() - t1, 2)
+    else:
+        res["teds"] = res["teds_s"] = None
     try:
         if GR * GC > GRITS_MAX or R * C > GRITS_MAX: raise ValueError("grid too large for GriTS cap")
         g = grits.grits_from_html(gt_html(gt, True)[12:-14], pred_html(R, C, cells, texts, True)[12:-14])
@@ -111,7 +116,7 @@ def score_one(args):
         if len(rr) >= 2:
             merged += 1
 
-    res["merged_row_err"] = merged
+    res["merged_row_err"] = merged if any(t.get("gi") is not None for t in ch) else None
     if thead:
         prow = set()
         for c in cells:
@@ -121,7 +126,8 @@ def score_one(args):
     else:
         res["header_ok"] = None
     res["n_cells"] = len(cells)
-    res["fail"] = res["teds_s"] < 0.5
+    ref = res["teds_s"] if res["teds_s"] is not None else res["grits_top"]
+    res["fail"] = ref is not None and ref < 0.5
     return res
 
 
@@ -154,7 +160,8 @@ def main():
         if os.path.exists(tmp): os.remove(tmp)
         n = len(out)
         if not n: continue
-        print(base, n, "TEDS %.3f TEDS-S %.3f rc_exact %.1f%% fail %d" % (sum(r["teds"] for r in out) / n, sum(r["teds_s"] for r in out) / n, 100 * sum(r["rc_exact"] for r in out) / n, sum(r["fail"] for r in out)))
+        v = [r["teds_s"] for r in out if r["teds_s"] is not None]
+        print(base, n, "TEDS-S %.3f (n=%d) rc_exact %.1f%% fail %d" % (sum(v) / max(1, len(v)), len(v), 100 * sum(r["rc_exact"] for r in out) / n, sum(r["fail"] for r in out)))
 
 
 if __name__ == "__main__":

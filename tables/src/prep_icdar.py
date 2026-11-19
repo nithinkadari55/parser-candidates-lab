@@ -12,7 +12,24 @@ import re
 def num(s): return float(re.match(r'-?[0-9.]+', s.strip()).group(0))
 
 
+def mappers(Wu, Hu):
+    return {
+        0: lambda x, y: (x, Hu - y),
+        90: lambda x, y: (y, x),
+        180: lambda x, y: (Wu - x, y),
+        270: lambda x, y: (Hu - y, Wu - x),
+    }
+
+
+def map_box(f, bb):
+    pts = [f(bb[0], bb[1]), f(bb[2], bb[3]), f(bb[0], bb[3]), f(bb[2], bb[1])]
+    xs = [p[0] for p in pts]; ys = [p[1] for p in pts]
+    return [min(xs), min(ys), max(xs), max(ys)]
+
+
 def main():
+    import shutil
+    pdfdir = os.path.join(SETDIR, "icdar_pdf"); os.makedirs(pdfdir, exist_ok=True)
     index = []; skipped = []
     for strf in sorted(glob.glob(os.path.join(SRC, "*", "*-str.xml"))):
         base = strf[:-8]; pdf = base + ".pdf"; regf = base + "-reg.xml"
@@ -24,16 +41,12 @@ def main():
                 b = r.find("bounding-box")
                 regbox[(t.get("id"), r.get("id"))] = (int(r.get("page")), [num(b.get(k)) for k in ("x1", "y1", "x2", "y2")])
         doc = pdfium.PdfDocument(pdf); plb = pdfplumber.open(pdf)
+        shutil.copy(pdf, os.path.join(pdfdir, os.path.basename(pdf)))
         for t in st.iter("table"):
             regions = list(t.iter("region"))
             for r in regions:
                 key = (t.get("id"), r.get("id"))
                 tid = f"icdar_{os.path.basename(base)}_t{key[0]}r{key[1]}"
-                if key not in regbox: skipped.append((tid, "no region box")); continue
-                page, (x1, y1, x2, y2) = regbox[key]
-                pp = plb.pages[page - 1]
-                if pp.rotation: skipped.append((tid, "rotated page")); continue
-                W, Hh = float(pp.width), float(pp.height)
                 cells = []
                 for c in r.iter("cell"):
                     sr = int(c.get("start-row")); sc = int(c.get("start-col"))
@@ -42,14 +55,33 @@ def main():
                     bb = [num(b.get(k)) for k in ("x1", "y1", "x2", "y2")] if b is not None else None
                     cells.append(dict(sr=sr, er=er, sc=sc, ec=ec, bb=bb, text=(cont.text or "").replace("\n", " ").strip() if cont is not None else ""))
                 if not cells: skipped.append((tid, "no cells")); continue
+                if key in regbox:
+                    page, (x1, y1, x2, y2) = regbox[key]
+                else:
+                    bbs = [c["bb"] for c in cells if c["bb"]]
+                    if not bbs or not r.get("page"): skipped.append((tid, "no region box")); continue
+                    page = int(r.get("page")); x1, y1 = min(b[0] for b in bbs), min(b[1] for b in bbs); x2, y2 = max(b[2] for b in bbs), max(b[3] for b in bbs)
+                pp = plb.pages[page - 1]
+                ml, mb, mr, mt = doc[page - 1].get_mediabox()
+                Wu, Hu = mr - ml, mt - mb
+                pw = [((w["x0"] + w["x1"]) / 2, (w["top"] + w["bottom"]) / 2) for w in pp.extract_words(keep_blank_chars=False, use_text_flow=False)]
+                best = None
+                for rot, f in mappers(Wu, Hu).items():
+                    gb = [map_box(f, c["bb"]) for c in cells if c["bb"]]
+                    hit = sum(1 for (px, py) in pw if any(b[0] - 1 <= px <= b[2] + 1 and b[1] - 1 <= py <= b[3] + 1 for b in gb))
+                    if best is None or hit > best[0]: best = (hit, rot, f)
+                rot, f = best[1], best[2]
+                if pp.rotation == 0: f = mappers(Wu, Hu)[0]; rot = 0
+                rx0, ry0, rx1, ry1 = map_box(f, [x1, y1, x2, y2])
+                L, T, Rr, B = rx0 - M, ry0 - M, rx1 + M, ry1 + M
                 r0 = min(c["sr"] for c in cells); c0 = min(c["sc"] for c in cells)
                 R = max(c["er"] for c in cells) - r0 + 1; C = max(c["ec"] for c in cells) - c0 + 1
-                L, T = x1 - M, Hh - y2 - M; Rr, B = x2 + M, Hh - y1 + M
                 img = doc[page - 1].render(scale=S).to_pil().convert("RGB")
                 im = img.crop((int(L * S), int(T * S), int(Rr * S), int(B * S)))
 
                 def tobox(bb):
-                    return [(bb[0] - L) * S, (Hh - bb[3] - T) * S, (bb[2] - L) * S, (Hh - bb[1] - T) * S]
+                    b = map_box(f, bb)
+                    return [(b[0] - L) * S, (b[1] - T) * S, (b[2] - L) * S, (b[3] - T) * S]
                 occ = {}; anchors = {}
                 for k, c in enumerate(cells):
                     rr0, cc0 = c["sr"] - r0, c["sc"] - c0; rr1, cc1 = c["er"] - r0 + 1, c["ec"] - c0 + 1
@@ -87,10 +119,9 @@ def main():
                         if gc["text"] and b[0] - 1 <= wcx <= b[2] + 1 and b[1] - 1 <= wcy <= b[3] + 1: gi = i; break
                     words.append(dict(text=w["text"], bbox=wb, gi=gi))
                 rec = dict(html=html, cells=[[dict(tokens=list(g["text"]), bbox=[int(v) for v in g["bbox"]] + [2 if g["text"] else 1]) for g in gcells]])
-                T_ = tag(rec, im)
-                T_["split_page"] = len(regions) > 1
-                T_["rotated"] = False
-                gt = dict(id=tid, filename=os.path.basename(pdf), page=page, region_pt=[x1, y1, x2, y2], crop_pt=[L, T, Rr, B], scale=S,
+                T_ = tag(rec, im, dict(split_page=len(regions) > 1, rotated=False, rotated_page=bool(pp.rotation)))
+                if pp.rotation: print("rotated page", tid, "rotation", pp.rotation, "gt mapping", rot, "word hits", best[0], "of", len(pw), flush=True)
+                gt = dict(id=tid, filename=os.path.basename(pdf), page=page, region_pt=[x1, y1, x2, y2], crop_pt=[L, T, Rr, B], scale=S, page_rotation=pp.rotation, gt_rot=rot,
                           html=html, cells=gcells, words=words, tags=T_)
                 im.save(os.path.join(OUT, tid + ".png"))
                 json.dump(gt, open(os.path.join(OUT, tid + ".json"), "w", encoding="utf-8"))

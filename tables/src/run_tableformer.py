@@ -63,8 +63,7 @@ def run_icdar(conv, shard, nshards, of):
     keys = [k for j, k in enumerate(keys) if j % nshards == shard]
     with open(of, "w", encoding="utf-8") as f:
         for fn, pg in keys:
-            sub = "competition-dataset-eu" if fn.startswith("eu") else "competition-dataset-us"
-            t = time.perf_counter(); r = conv.convert(os.path.join(RAW, "icdar2013", "x", sub, fn), page_range=(pg, pg)); dt = (time.perf_counter() - t) * 1000
+            t = time.perf_counter(); r = conv.convert(os.path.join(SETS, "icdar_pdf", fn), page_range=(pg, pg)); dt = (time.perf_counter() - t) * 1000
             dd = r.document.export_to_dict(); ph = page_heights(dd)
             tabs = [t_ for t_ in dd["tables"] if t_["prov"]]
             for tid in bypage[(fn, pg)]:
@@ -85,9 +84,28 @@ def run_icdar(conv, shard, nshards, of):
             print("icdar", fn, pg, round(dt / 1000, 1), "s", len(tabs), flush=True)
 
 
+def run_scitsr(conv, ids, of):
+    with open(of, "w", encoding="utf-8") as f:
+        for tid in ids:
+            g = load_gt("scitsr", tid); sx, sy = g["pdf_scale"]
+            t = time.perf_counter(); r = conv.convert(os.path.join(SETS, "scitsr", tid + ".pdf")); dt = (time.perf_counter() - t) * 1000
+            dd = r.document.export_to_dict(); ph = page_heights(dd)
+            tabs = [t_ for t_ in dd["tables"] if t_["prov"]]
+            rec = dict(id=tid, ms_total=dt, n_tables_on_page=len(tabs))
+            if tabs:
+                best = max(tabs, key=lambda t_: len(t_["data"]["table_cells"]))
+                p = best["prov"][0]
+                cells = cells_of(best, ph.get(p["page_no"], list(ph.values())[0]), 0, 0, 1.0)
+                for c in cells: c["bbox"] = [c["bbox"][0] * sx, c["bbox"][1] * sy, c["bbox"][2] * sx, c["bbox"][3] * sy]
+                rec["cells"] = cells
+            else:
+                rec["cells"] = []; rec["err"] = "no table detected"
+            f.write(json.dumps(rec) + "\n"); f.flush()
+
+
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--sets", default="ptn,ftn,pt1m,icdar")
+    ap.add_argument("--sets", default="ptn,ftn,pt1m,icdar,pt2,scitsr,tabrec,rot")
     ap.add_argument("--shard", type=int, default=0); ap.add_argument("--nshards", type=int, default=1)
     ap.add_argument("--threads", type=int, default=0); ap.add_argument("--page", default="letter", choices=["letter", "tight"])
     a = ap.parse_args()
@@ -100,6 +118,7 @@ def main():
     for s in a.sets.split(","):
         of = os.path.join(OUT, "pred", f"tableformer_{s}_s{a.shard}.jsonl")
         if s == "icdar": run_icdar(conv, a.shard, a.nshards, of)
+        elif s == "scitsr": run_scitsr(conv, shard_ids(s, a.shard, a.nshards), of)
         else: run_images(conv, s, shard_ids(s, a.shard, a.nshards), of, a.page)
         print("done tableformer", s, a.shard, flush=True)
 

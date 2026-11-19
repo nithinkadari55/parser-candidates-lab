@@ -6,7 +6,7 @@ from paths import SETS, MODELS, OUT
 import onnxruntime as ort
 ort.set_default_logger_severity(3)
 
-ALL_SETS = ["ptn", "ftn", "pt1m", "icdar"]
+ALL_SETS = ["ptn", "ftn", "pt1m", "icdar", "pt2", "scitsr", "tabrec", "rot"]
 
 
 def so(threads):
@@ -16,7 +16,9 @@ def so(threads):
 
 
 def set_ids(setname):
-    return json.load(open(os.path.join(SETS, setname, "index.json")))
+    ids = json.load(open(os.path.join(SETS, setname, "index.json")))
+    lim = int(os.environ.get("TB_LIMIT") or 0)
+    return ids[:lim] if lim else ids
 
 
 def shard_ids(setname, shard, nshards):
@@ -59,12 +61,14 @@ def padimg(im, pad):
 
 
 class TATR:
+    FILE = "model_quantized.onnx"
     MEAN = np.array([0.485, 0.456, 0.406], np.float32); STD = np.array([0.229, 0.224, 0.225], np.float32)
 
     def __init__(self, threads):
         import tatr_lib as TL
         self.TL = TL; self.keep_text = False
-        self.sess = ort.InferenceSession(os.path.join(MODELS, "tatr", "model_quantized.onnx"), so(threads), providers=["CPUExecutionProvider"])
+        self.sess = ort.InferenceSession(os.path.join(MODELS, "tatr", self.FILE), so(threads), providers=["CPUExecutionProvider"])
+        self.f16 = self.sess.get_inputs()[0].type == "tensor(float16)"
 
     def prep(self, im):
         w, h = im.size; s = 1000 / max(w, h)
@@ -74,7 +78,8 @@ class TATR:
     def __call__(self, im, toks):
         x = self.prep(im)
         t = time.perf_counter()
-        lg, bx = self.sess.run(None, {"pixel_values": x})
+        lg, bx = self.sess.run(None, {"pixel_values": x.astype(np.float16) if self.f16 else x})
+        lg, bx = lg.astype(np.float32), bx.astype(np.float32)
         tm = time.perf_counter() - t
         objs = self.TL.outputs_to_objects(lg[0], bx[0], im.size)
         cells, _ = self.TL.run_post(objs, copy.deepcopy(toks))
@@ -124,7 +129,148 @@ class SLANet:
         return out, tm
 
 
-MODELS_ = {"tatr": TATR, "slanet1m": SLANet}
+class TCN:
+    PAD = 0
+
+    def __init__(self, threads):
+        from onnxtr.models import table_predictor
+        from onnxtr.models.table_structure import tablecenternet
+        from onnxtr.models.engine import EngineConfig
+        o = so(threads)
+        self.pred = table_predictor(arch=tablecenternet(model_path=os.path.join(MODELS, "tcn", "model.onnx"), engine_cfg=EngineConfig(providers=["CPUExecutionProvider"], session_options=o)), assume_straight_pages=True)
+
+    def __call__(self, im, toks):
+        W, H = im.size
+        a = np.asarray(im)
+        wb = np.array([[t["bbox"][0] / W, t["bbox"][1] / H, t["bbox"][2] / W, t["bbox"][3] / H] for t in toks], dtype=np.float32).reshape(-1, 4)
+        t = time.perf_counter()
+        res = self.pred.predict_regions([a], [{"class_names": ["Table"], "boxes": [np.array([0, 0, 1, 1], np.float32)]}], word_boxes=[wb])
+        tm = time.perf_counter() - t
+        tables = res[0]
+        if not tables: return [], tm
+        tb = max(tables, key=lambda x: len(x["cells"]))
+        out = []
+        for c in tb["cells"]:
+            g = np.asarray(c["geometry"], float).reshape(-1, 2)
+            out.append(dict(r0=int(c["row_start"]), r1=int(c["row_end"]) + 1, c0=int(c["col_start"]), c1=int(c["col_end"]) + 1,
+                            bbox=[float(g[:, 0].min() * W), float(g[:, 1].min() * H), float(g[:, 0].max() * W), float(g[:, 1].max() * H)], header=False))
+        return out, tm
+
+
+class POTATR:
+    PAD = 20
+    FILE = "potatr.onnx"
+    MEAN = np.array([0.485, 0.456, 0.406], np.float32); STD = np.array([0.229, 0.224, 0.225], np.float32)
+
+    def __init__(self, threads):
+        import json as J
+        from potatr import postprocess as PP
+        import torch
+        torch.set_num_threads(max(1, threads or 2))
+        self.PP = PP; self.torch = torch
+        self.classes = J.load(open(os.path.join(MODELS, "potatr", "potatr_v1.json")))["classes"]
+        self.sess = ort.InferenceSession(os.path.join(MODELS, "potatr", self.FILE), so(threads), providers=["CPUExecutionProvider"])
+        self.iname = self.sess.get_inputs()[0].name
+
+    def __call__(self, im, toks):
+        w, h = im.size; s = 1000 / max(w, h)
+        r = im.resize((int(round(s * w)), int(round(s * h))), Image.BILINEAR)
+        x = ((np.asarray(r).astype(np.float32) / 255 - self.MEAN) / self.STD).transpose(2, 0, 1)[None].copy()
+        t = time.perf_counter()
+        lg, bx, ed = self.sess.run(None, {self.iname: x})
+        tm = time.perf_counter() - t
+        tables = self.PP.potatr_outputs_to_tables_cells(self.torch.from_numpy(lg[0]), self.torch.from_numpy(bx[0]), copy.deepcopy(toks), (w, h), self.classes)
+        if not tables: return [], tm
+        cells = max(tables, key=len)
+        out = []
+        for c in cells:
+            rs, cs = c.get("row_nums") or [], c.get("column_nums") or []
+            if not rs or not cs: continue
+            out.append(dict(r0=min(rs), r1=max(rs) + 1, c0=min(cs), c1=max(cs) + 1, bbox=list(map(float, c["bbox"])), header=bool(c.get("header") or c.get("column header"))))
+        return out, tm
+
+
+class POTATR8(POTATR):
+    FILE = "potatr_int8.onnx"
+
+
+class TFV2:
+    PAD = 0
+    CELL = {"fcel", "ecel", "ched", "rhed", "srow"}
+
+    def __init__(self, threads):
+        import torch, torchvision.transforms as T
+        from transformers import AutoTokenizer
+        from docling_ibm_models.tableformer_v2 import TableFormerV2
+        torch.set_num_threads(max(1, threads or 4))
+        d = os.path.join(MODELS, "tfv2")
+        self.torch = torch
+        self.model = TableFormerV2.from_pretrained(d).eval()
+        self.tok = AutoTokenizer.from_pretrained(d)
+        self.tf = T.Compose([T.Resize((448, 448)), T.ToTensor(), T.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])])
+        self.names = {i: self.tok.decode([i]).strip().strip("<>") for i in range(self.model.config.vocab_size)}
+
+    def generate(self, x):
+        with self.torch.no_grad():
+            o = self.model.generate(images=x, tokenizer=self.tok, max_length=512)
+        ids = o["generated_ids"][0].tolist()
+        bb = o.get("predicted_bboxes")
+        bb = bb[0].numpy() if bb is not None and bb.numel() else np.zeros((0, 4))
+        return ids, bb
+
+    def __call__(self, im, toks):
+        W, H = im.size
+        x = self.tf(im).unsqueeze(0)
+        t = time.perf_counter()
+        ids, bb = self.generate(x)
+        tm = time.perf_counter() - t
+        return otsl_cells([self.names[i] for i in ids], bb, W, H, self.CELL), tm
+
+
+def otsl_cells(tags, bb, W, H, cell_tags):
+    tags = [t for t in tags if t not in ("pad", "[UNK]", "start", "end")]
+    rows, cur = [], []
+    for t in tags:
+        if t == "nl": rows.append(cur); cur = []
+        else: cur.append(t)
+    if cur: rows.append(cur)
+    if not rows: return []
+    C = max(len(r) for r in rows)
+    grid = [r + [""] * (C - len(r)) for r in rows]
+    out = []; k = 0
+    for ri, row in enumerate(grid):
+        for ci, tg in enumerate(row):
+            if tg not in cell_tags: continue
+            box = None
+            if k < len(bb):
+                b = bb[k]; box = [float(b[0] * W), float(b[1] * H), float(b[2] * W), float(b[3] * H)]
+            k += 1
+            cs = 1
+            while ci + cs < C and grid[ri][ci + cs] == "lcel": cs += 1
+            rs = 1
+            while ri + rs < len(grid) and grid[ri + rs][ci] == "ucel": rs += 1
+            out.append(dict(r0=ri, r1=ri + rs, c0=ci, c1=ci + cs, bbox=box or [0, 0, 0, 0], header=tg == "ched"))
+    return out
+
+
+class TATR32(TATR):
+    FILE = "model.onnx"
+
+
+class TATR16(TATR):
+    FILE = "model_fp16.onnx"
+
+
+class TATR4(TATR):
+    FILE = "model_int4.onnx"
+
+
+def _tfv2q(threads):
+    from tfv2_onnx import TFV2Q
+    return TFV2Q(threads)
+
+
+MODELS_ = {"tatr": TATR, "tatr32": TATR32, "tatr16": TATR16, "tatr4": TATR4, "slanet1m": SLANet, "tcn": TCN, "potatr": POTATR, "potatr8": POTATR8, "tfv2": TFV2, "tfv2q": _tfv2q}
 
 
 def main():
@@ -134,8 +280,8 @@ def main():
     ap.add_argument("--pad", type=int, default=-1); ap.add_argument("--threads", type=int, default=0)
     a = ap.parse_args()
     base, _, mode = a.model.partition("-")
-    if a.pad < 0: a.pad = 4 if mode == "trim" else 20
     M = MODELS_[base](a.threads)
+    if a.pad < 0: a.pad = 4 if mode == "trim" else getattr(M, "PAD", 20)
     os.makedirs(os.path.join(OUT, "pred"), exist_ok=True)
     for s in a.sets.split(","):
         of = os.path.join(OUT, "pred", f"{a.model}_{s}_s{a.shard}.jsonl")
