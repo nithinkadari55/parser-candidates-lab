@@ -12,6 +12,9 @@ on:
       extra_runs:
         description: "space-separated earlier run ids whose artifacts the eval/aggregate jobs also use"
         default: ""
+      skip_prep:
+        description: "non-empty: skip the prep jobs (caches already exist)"
+        default: ""
 
 concurrency:
   group: compare-${{ github.ref }}-${{ inputs.only }}-${{ inputs.reuse_run }}
@@ -28,7 +31,7 @@ env:
 
 jobs:
   prep:
-    if: inputs.reuse_run == ''
+    if: inputs.reuse_run == '' && inputs.skip_prep == ''
     runs-on: ubuntu-latest
     timeout-minutes: 60
     steps:
@@ -69,7 +72,7 @@ jobs:
           path: out/
 
   prep_formula:
-    if: inputs.reuse_run == ''
+    if: inputs.reuse_run == '' && inputs.skip_prep == ''
     runs-on: ubuntu-latest
     timeout-minutes: 60
     steps:
@@ -87,6 +90,7 @@ jobs:
 
   prep_pp:
     needs: prep
+    if: inputs.skip_prep == ''
     runs-on: ubuntu-latest
     timeout-minutes: 60
     steps:
@@ -190,13 +194,13 @@ jobs:
 
   odb_pp:
     needs: [prep, prep_pp]
-    if: inputs.only == '' || contains(format(',{0},', inputs.only), ',odb_pp,')
+    if: ${{ !cancelled() && !failure() && (inputs.only == '' || contains(format(',{0},', inputs.only), ',odb_pp,')) }}
     runs-on: ubuntu-latest
     timeout-minutes: 115
     strategy:
       fail-fast: false
       matrix:
-        shard: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23]
+        shard: [0, 1, 2, 3, 4, 5, 6, 7]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -221,7 +225,7 @@ jobs:
             for d in dl/*/md; do if [ -d "$d" ]; then cp "$d"/*.md /home/runner/skip/ || true; fi; done
           done
           ls /home/runner/skip | wc -l
-          python compare/scripts/run_pp.py --skip-dir /home/runner/skip odb ${{ matrix.shard }} 24 out
+          python compare/scripts/run_pp.py --skip-dir /home/runner/skip odb ${{ matrix.shard }} 8 out
       - uses: actions/upload-artifact@v4
         if: always()
         with:
