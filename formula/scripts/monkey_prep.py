@@ -91,7 +91,10 @@ def quant_split():
     from onnxruntime.quantization import QuantType, quantize_dynamic
     from onnxruntime.quantization.shape_inference import quant_pre_process
     od, qd = os.path.join(WD, "onnx_fp32"), os.path.join(WD, "onnx_int8")
-    subprocess.check_call([sys.executable, os.path.join(ROOT, "scripts", "split_dec.py"), os.path.join(od, "decoder_model.onnx"), os.path.join(od, "split")])
+    pre_dec = os.path.join(od, "decoder_model.pre.onnx")
+    quant_pre_process(os.path.join(od, "decoder_model.onnx"), pre_dec, skip_symbolic_shape=True)
+    subprocess.check_call([sys.executable, os.path.join(ROOT, "scripts", "split_dec.py"), pre_dec, os.path.join(od, "split")])
+    os.remove(pre_dec)
     os.makedirs(qd, exist_ok=True)
     for f in ("encoder_model.onnx", "decoder_model.onnx"):
         pre = os.path.join(qd, f + ".pre.onnx")
@@ -111,11 +114,12 @@ def parity():
     imgs = [os.path.join(ROOT, "crops", k + ".png") for k in gt if not k.startswith("n")]
     ref = {p: mt(p) for p in imgs}
     for v in ("fp32", "int8"):
-        mo = MonkeyOnnx(4, v)
-        same = 0
-        for p in imgs:
-            same += mo(p)[0] == ref[p][0]
-        res[v] = f"{same}/{len(imgs)} identical to PyTorch"
+        try:
+            mo = MonkeyOnnx(4, v)
+            same = sum(mo(p)[0] == ref[p][0] for p in imgs)
+            res[v] = f"{same}/{len(imgs)} identical to PyTorch"
+        except Exception as e:
+            res[v] = f"failed: {type(e).__name__}: {str(e)[:200]}"
     INFO["onnx_parity_own12"] = res
     INFO["torch_own12_preds"] = {os.path.basename(p): ref[p][0] for p in imgs}
 
