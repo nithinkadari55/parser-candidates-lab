@@ -11,6 +11,7 @@ def export():
     import torch
     from docling_ibm_models.tableformer_v2 import TableFormerV2
     os.makedirs(O, exist_ok=True)
+    torch.backends.mha.set_fastpath_enabled(False)
     m = TableFormerV2.from_pretrained(D).eval()
 
     class Enc(torch.nn.Module):

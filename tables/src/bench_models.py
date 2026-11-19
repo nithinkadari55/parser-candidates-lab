@@ -172,21 +172,40 @@ class POTATR:
         self.sess = ort.InferenceSession(os.path.join(MODELS, "potatr", self.FILE), so(threads), providers=["CPUExecutionProvider"])
         self.iname = self.sess.get_inputs()[0].name
 
+    PAGE = os.environ.get("POTATR_PAGE", "page")
+    calls = 0
+
     def __call__(self, im, toks):
-        w, h = im.size; s = 1000 / max(w, h)
-        r = im.resize((int(round(s * w)), int(round(s * h))), Image.BILINEAR)
+        W0, H0 = im.size
+        if self.PAGE == "page":
+            PW = max(W0 + 80, int(W0 / 0.75)); PH = max(H0 + 80, int(PW * 1.294))
+            ox, oy = (PW - W0) // 2, 40
+            page = Image.new("RGB", (PW, PH), (255, 255, 255)); page.paste(im, (ox, oy))
+        else:
+            page, ox, oy = im, 0, 0
+        toks = copy.deepcopy(toks)
+        for tk in toks: tk["bbox"] = [tk["bbox"][0] + ox, tk["bbox"][1] + oy, tk["bbox"][2] + ox, tk["bbox"][3] + oy]
+        w, h = page.size; s = 1000 / max(w, h)
+        r = page.resize((int(round(s * w)), int(round(s * h))), Image.BILINEAR)
         x = ((np.asarray(r).astype(np.float32) / 255 - self.MEAN) / self.STD).transpose(2, 0, 1)[None].copy()
         t = time.perf_counter()
         lg, bx, ed = self.sess.run(None, {self.iname: x})
         tm = time.perf_counter() - t
-        tables = self.PP.potatr_outputs_to_tables_cells(self.torch.from_numpy(lg[0]), self.torch.from_numpy(bx[0]), copy.deepcopy(toks), (w, h), self.classes)
+        L, B = self.torch.from_numpy(lg[0]), self.torch.from_numpy(bx[0])
+        if POTATR.calls < 3:
+            import collections
+            objs = self.PP.potatr_outputs_to_objects(L, B, (w, h), self.classes)
+            print("potatr debug", (w, h), dict(collections.Counter(o["label"] for o in objs)), flush=True)
+        POTATR.calls += 1
+        tables = self.PP.potatr_outputs_to_tables_cells(L, B, toks, (w, h), self.classes)
         if not tables: return [], tm
         cells = max(tables, key=len)
         out = []
         for c in cells:
             rs, cs = c.get("row_nums") or [], c.get("column_nums") or []
             if not rs or not cs: continue
-            out.append(dict(r0=min(rs), r1=max(rs) + 1, c0=min(cs), c1=max(cs) + 1, bbox=list(map(float, c["bbox"])), header=bool(c.get("header") or c.get("column header"))))
+            b = list(map(float, c["bbox"]))
+            out.append(dict(r0=min(rs), r1=max(rs) + 1, c0=min(cs), c1=max(cs) + 1, bbox=[b[0] - ox, b[1] - oy, b[2] - ox, b[3] - oy], header=bool(c.get("header") or c.get("column header"))))
         return out, tm
 
 

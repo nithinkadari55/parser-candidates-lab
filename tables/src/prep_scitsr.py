@@ -49,9 +49,12 @@ def main():
     for r in rows:
         try:
             im = Image.open(io.BytesIO(r["image"]["bytes"])).convert("RGB")
-            pdf = pdfium.PdfDocument(r["pdf"]); W, H = pdf[0].get_size()
+            pdf = pdfium.PdfDocument(r["pdf"]); l, b, rr, t = pdf[0].get_cropbox()
+            W, H = rr - l, t - b
             sx, sy = im.size[0] / W, im.size[1] / H
-            words = [dict(text=c["text"], bbox=[c["x1"] * sx, (H - c["y2"]) * sy, c["x2"] * sx, (H - c["y1"]) * sy], gi=None) for c in r["chunks"]]
+            words = [dict(text=c["text"], bbox=[(c["x1"] - l) * sx, (t - c["y2"]) * sy, (c["x2"] - l) * sx, (t - c["y1"]) * sy], gi=None) for c in r["chunks"]]
+            inside = sum(1 for w_ in words if 0 <= w_["bbox"][0] <= im.size[0] and 0 <= w_["bbox"][1] <= im.size[1])
+            if not inside: print("words outside image", r["table_id"], r["chunks"][:1], (l, b, rr, t), im.size)
             toks, cells = build(r["cells"])
             T = tag(dict(html=toks, cells=[[dict(tokens=list(c["text"]), bbox=c["bbox"]) for c in cells]]), im)
         except Exception as e:

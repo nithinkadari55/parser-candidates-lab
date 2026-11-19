@@ -63,6 +63,7 @@ jobs:
           python3 - <<'EOF' >> "$GITHUB_OUTPUT"
           import json, os
           n = {"tatr": 3, "tatr32": 4, "tatr16": 4, "tatr4": 4, "slanet1m": 2, "tcn": 8, "potatr": 6, "potatr8": 6, "tfv2": 12, "tfv2q": 12, "tableformer": 14}
+          if os.environ.get("TB_LIMIT"): n = {k: 1 for k in n}
           inc = [dict(model=m, shard=i, nshards=n[m]) for m in os.environ["MODELS"].split(",") if m in n for i in range(n[m])]
           print("matrix=" + json.dumps({"include": inc}))
           print("has_jobs=" + ("true" if inc else "false"))
@@ -154,6 +155,7 @@ jobs:
             potatr*) pip install "git+https://github.com/kensho-technologies/POTATR@fdb8f57c5124ff27ad7c12bcb976b48a615f1131" --extra-index-url https://download.pytorch.org/whl/cpu ;;
             tfv2*) pip install docling-ibm-models==4.0.4 transformers==4.57.1 --extra-index-url https://download.pytorch.org/whl/cpu ;;
             tableformer) pip install docling-rs==2.84.0 ;;
+            tcn) pip install "onnxtr @ git+https://github.com/felixdittrich92/OnnxTR@b77b5669ef84913b006b2da204d5a52f6eb0c7c7" ;;
           esac
           pip uninstall -y opencv-python opencv-python-headless || true
           pip install opencv-python-headless==5.1.0.95
@@ -216,6 +218,7 @@ jobs:
             torch) pip install $TORCH_PIN --index-url https://download.pytorch.org/whl/cpu
                    pip install "git+https://github.com/kensho-technologies/POTATR@fdb8f57c5124ff27ad7c12bcb976b48a615f1131" docling-ibm-models==4.0.4 transformers==4.57.1 --extra-index-url https://download.pytorch.org/whl/cpu ;;
             docling) pip install docling-rs==2.84.0 ;;
+            onnx) pip install "onnxtr @ git+https://github.com/felixdittrich92/OnnxTR@b77b5669ef84913b006b2da204d5a52f6eb0c7c7" ;;
           esac
           pip uninstall -y opencv-python opencv-python-headless || true
           pip install opencv-python-headless==5.1.0.95
