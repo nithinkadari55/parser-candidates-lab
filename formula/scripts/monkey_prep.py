@@ -89,13 +89,17 @@ def export():
 
 def quant_split():
     from onnxruntime.quantization import QuantType, quantize_dynamic
+    from onnxruntime.quantization.shape_inference import quant_pre_process
     od, qd = os.path.join(WD, "onnx_fp32"), os.path.join(WD, "onnx_int8")
+    subprocess.check_call([sys.executable, os.path.join(ROOT, "scripts", "split_dec.py"), os.path.join(od, "decoder_model.onnx"), os.path.join(od, "split")])
     os.makedirs(qd, exist_ok=True)
     for f in ("encoder_model.onnx", "decoder_model.onnx"):
-        quantize_dynamic(os.path.join(od, f), os.path.join(qd, f), weight_type=QuantType.QInt8, per_channel=False)
-    INFO["onnx_int8_bytes"] = sum(os.path.getsize(os.path.join(qd, f)) for f in os.listdir(qd))
-    for d in (od, qd):
-        subprocess.check_call([sys.executable, os.path.join(ROOT, "scripts", "split_dec.py"), os.path.join(d, "decoder_model.onnx"), os.path.join(d, "split")])
+        pre = os.path.join(qd, f + ".pre.onnx")
+        quant_pre_process(os.path.join(od, f), pre, skip_symbolic_shape=True)
+        quantize_dynamic(pre, os.path.join(qd, f), weight_type=QuantType.QInt8, per_channel=False)
+        os.remove(pre)
+    INFO["onnx_int8_bytes"] = sum(os.path.getsize(os.path.join(qd, f)) for f in ("encoder_model.onnx", "decoder_model.onnx"))
+    subprocess.check_call([sys.executable, os.path.join(ROOT, "scripts", "split_dec.py"), os.path.join(qd, "decoder_model.onnx"), os.path.join(qd, "split")])
 
 
 def parity():

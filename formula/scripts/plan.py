@@ -2,6 +2,7 @@ import json, os, sys
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 P = json.load(open(os.path.join(ROOT, "plan.json")))
 kind = sys.argv[1]
+only = [m for m in (sys.argv[2] if len(sys.argv) > 2 else "").split(",") if m]
 inc = []
 if kind == "acc":
     for m, n in P["shards"].items():
@@ -11,4 +12,6 @@ elif kind == "timing":
     inc = [{"model": m} for m in list(P["shards"]) + ["p2t15_int8_split", "monkey_s_onnx_fp32"]]
 elif kind == "cdm":
     inc = [{"model": m, "shard": k, "n": P["cdm_shards"]} for m in P["shards"] for k in range(P["cdm_shards"])]
+if only:
+    inc = [x for x in inc if x["model"] in only]
 print(json.dumps({"include": inc}))
