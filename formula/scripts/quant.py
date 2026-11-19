@@ -2,6 +2,7 @@ import os, sys, shutil
 from onnxruntime.quantization import quantize_dynamic, QuantType
 from onnxruntime.quantization.shape_inference import quant_pre_process
 src, dst = sys.argv[1], sys.argv[2]
+os.makedirs(dst, exist_ok=True)
 for n in ["encoder_model.onnx", "decoder_model.onnx"]:
     pre = os.path.join(dst, n + ".pre.onnx")
     quant_pre_process(os.path.join(src, n), pre, skip_symbolic_shape=True)
