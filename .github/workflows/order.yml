@@ -1,0 +1,249 @@
+name: order
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - "order/**"
+      - ".github/workflows/order.yml"
+
+concurrency:
+  group: order-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  ODB_DIR: /home/runner/odb
+  PP_DIR: /home/runner/ppdlv3
+  DLRS_CACHE: /home/runner/dlrs
+  PDF_DIR: /home/runner/pdfs
+  PYTHONUNBUFFERED: "1"
+  HF_HUB_DISABLE_PROGRESS_BARS: "1"
+
+jobs:
+  prep:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install -r order/requirements-core.txt
+      - id: odb
+        uses: actions/cache@v4
+        with:
+          path: /home/runner/odb
+          key: odb-english-v1
+      - if: steps.odb.outputs.cache-hit != 'true'
+        run: python order/scripts/fetch.py odb
+      - id: pp
+        uses: actions/cache@v4
+        with:
+          path: /home/runner/ppdlv3
+          key: ppdlv3-onnx-46bbdf1
+      - if: steps.pp.outputs.cache-hit != 'true'
+        run: python order/scripts/fetch.py pp
+      - id: dlrs
+        uses: actions/cache@v4
+        with:
+          path: /home/runner/dlrs
+          key: dlrs-2.84.0-models-v1
+      - if: steps.dlrs.outputs.cache-hit != 'true'
+        run: |
+          pip install docling-rs==2.84.0
+          python -c "from docling_rs import models as m; m.download_models(dest='/home/runner/dlrs', progress=False, enrichment=False)"
+          du -sh /home/runner/dlrs; find /home/runner/dlrs -type f | head -40
+      - id: pdfs
+        uses: actions/cache@v4
+        with:
+          path: /home/runner/pdfs
+          key: doclingrs-pdfs-cfb8df2
+      - if: steps.pdfs.outputs.cache-hit != 'true'
+        run: python order/scripts/fetch.py pdfs
+      - run: python order/scripts/odb.py
+
+  gt:
+    needs: prep
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        group: [docling, logic]
+        shard: [0, 1]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install -r order/requirements-core.txt && python order/scripts/fetch.py vendor
+      - uses: actions/cache/restore@v4
+        with:
+          path: /home/runner/odb
+          key: odb-english-v1
+          fail-on-cache-miss: true
+      - run: mkdir -p out && python order/scripts/run_gt.py ${{ matrix.group }} ${{ matrix.shard }} 2 out/gt-${{ matrix.group }}-${{ matrix.shard }}.jsonl
+      - uses: actions/upload-artifact@v4
+        with:
+          name: gt-${{ matrix.group }}-${{ matrix.shard }}
+          path: out/
+
+  pp:
+    needs: prep
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [0, 1, 2, 3]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install -r order/requirements-core.txt -r order/requirements-pp.txt
+      - uses: actions/cache/restore@v4
+        with:
+          path: /home/runner/odb
+          key: odb-english-v1
+          fail-on-cache-miss: true
+      - uses: actions/cache/restore@v4
+        with:
+          path: /home/runner/ppdlv3
+          key: ppdlv3-onnx-46bbdf1
+          fail-on-cache-miss: true
+      - run: mkdir -p out && python order/scripts/run_pp.py ${{ matrix.shard }} 4 out/pp-${{ matrix.shard }}.jsonl
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pp-${{ matrix.shard }}
+          path: out/
+
+  heron:
+    needs: prep
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [0, 1, 2, 3, 4, 5, 6, 7]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install -r order/requirements-core.txt docling-rs==2.84.0
+      - uses: actions/cache/restore@v4
+        with:
+          path: /home/runner/odb
+          key: odb-english-v1
+          fail-on-cache-miss: true
+      - uses: actions/cache/restore@v4
+        with:
+          path: /home/runner/dlrs
+          key: dlrs-2.84.0-models-v1
+          fail-on-cache-miss: true
+      - run: mkdir -p out && python order/scripts/run_heron.py ${{ matrix.shard }} 8 out/heron-${{ matrix.shard }}.jsonl
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: heron-${{ matrix.shard }}
+          path: out/
+
+  own:
+    needs: prep
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install -r order/requirements-core.txt -r order/requirements-pp.txt -r order/requirements-tools.txt && python order/scripts/fetch.py vendor
+      - uses: actions/cache/restore@v4
+        with:
+          path: /home/runner/ppdlv3
+          key: ppdlv3-onnx-46bbdf1
+          fail-on-cache-miss: true
+      - uses: actions/cache/restore@v4
+        with:
+          path: /home/runner/dlrs
+          key: dlrs-2.84.0-models-v1
+          fail-on-cache-miss: true
+      - uses: actions/cache/restore@v4
+        with:
+          path: /home/runner/pdfs
+          key: doclingrs-pdfs-cfb8df2
+          fail-on-cache-miss: true
+      - name: Build EdgeParse CLI from source
+        continue-on-error: true
+        run: |
+          java -version 2>&1 | head -1; rustc --version
+          git clone --depth 1 https://github.com/raphaelmansuy/edgeparse /home/runner/edgeparse
+          cd /home/runner/edgeparse && git log -1 --format='%H %cd'
+          cargo build --release -p edgeparse-cli 2>&1 | tail -5
+          b=$(find target/release -maxdepth 1 -type f -perm -u+x -name 'edgeparse*' | head -1)
+          echo "built: $b"; "$b" --help | head -30
+          echo "EDGEPARSE_BIN=/home/runner/edgeparse/$b" >> "$GITHUB_ENV"
+      - run: mkdir -p out && python order/scripts/own.py out/own.json
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: own
+          path: out/
+
+  timing:
+    needs: prep
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install -r order/requirements-core.txt -r order/requirements-pp.txt docling-rs==2.84.0 && python order/scripts/fetch.py vendor
+      - uses: actions/cache/restore@v4
+        with:
+          path: /home/runner/odb
+          key: odb-english-v1
+          fail-on-cache-miss: true
+      - uses: actions/cache/restore@v4
+        with:
+          path: /home/runner/ppdlv3
+          key: ppdlv3-onnx-46bbdf1
+          fail-on-cache-miss: true
+      - uses: actions/cache/restore@v4
+        with:
+          path: /home/runner/dlrs
+          key: dlrs-2.84.0-models-v1
+          fail-on-cache-miss: true
+      - run: nproc; lscpu | grep -E 'Model name|^CPU\(s\)'; free -m
+      - run: mkdir -p out && python order/scripts/timing.py out/timing.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: timing
+          path: out/
+
+  aggregate:
+    needs: [gt, pp, heron, own, timing]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install -r order/requirements-core.txt && python order/scripts/fetch.py vendor
+      - uses: actions/cache/restore@v4
+        with:
+          path: /home/runner/odb
+          key: odb-english-v1
+          fail-on-cache-miss: true
+      - uses: actions/download-artifact@v4
+        with:
+          path: art
+      - run: mkdir -p out && python order/scripts/aggregate.py art out/summary.md && cat out/summary.md >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: summary
+          path: out/

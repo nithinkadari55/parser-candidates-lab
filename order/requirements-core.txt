@@ -1,0 +1,6 @@
+numpy==2.4.6
+scipy==1.17.1
+docling-core==2.107.1
+rtree==1.4.1
+huggingface_hub==2.4.0
+pillow==13.0.0

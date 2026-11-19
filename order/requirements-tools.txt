@@ -1,0 +1,7 @@
+docling-rs==2.84.0
+pdfplumber==0.11.10
+pypdfium2==5.15.2
+pikepdf==10.18.2
+edgeparse==0.3.2
+pdf_oxide==0.3.78
+opendataloader-pdf==2.5.22
