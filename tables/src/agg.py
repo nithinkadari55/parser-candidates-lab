@@ -62,6 +62,20 @@ def main():
         c = common(s)
         for m in MODELS:
             if data[(m, s)] and c: P(fmt(m, f"{s} paired", summ([data[(m, s)][i] for i in c])))
+    P("\n## Only tables where docling found a table (TableFormer produced cells)\n" + H)
+    for s in SETS:
+        tf = data.get(("tableformer", s))
+        if not tf: continue
+        ids = {i for i, r in tf.items() if r.get("n_cells")}
+        for m in MODELS:
+            d = data[(m, s)]
+            if d: P(fmt(m, f"{s} tf-detected", summ([d[i] for i in ids if i in d])))
+        for b in BUCKETS:
+            for m in MODELS:
+                d = data[(m, s)]
+                if d:
+                    rs = [d[i] for i in ids if i in d and d[i]["bucket"] == b]
+                    if rs: P(fmt(m, f"{s}/{b} tf-detected", summ(rs)))
     P("\n## Per tag (all sets pooled, paired ids)\n" + H)
     for t in TAGS:
         for m in MODELS:
