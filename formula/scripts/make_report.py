@@ -90,6 +90,25 @@ if cdm:
         f1 = [d[i]["F1_score"] for i in common]
         out.append(f"| {m} | {cdm[m]['n_input']} | {len(d)} | {round(sum(f1) / max(len(f1), 1), 4)} | {round(sum(x == 1 for x in f1) / max(len(f1), 1), 4)} |")
 
+out.append("\n## Build notes\n")
+for label, path in [("MFR 1.5 variants", os.path.join(ROOT, "models", "variants_status.json")),
+                    ("MonkeyOCRv2-S", os.path.join(ROOT, "models_monkey", "monkey_info.json"))]:
+    if os.path.exists(path):
+        d = json.load(open(path, encoding="utf-8"))
+        d.pop("torch_own12_preds", None)
+        out.append("**" + label + "**\n\n```\n" + json.dumps(d, indent=1)[:4000] + "\n```\n")
+ri = os.path.join(ROOT, "models_ref", "models_info.json")
+if os.path.exists(ri):
+    out.append("**reference model files (bytes)**: " + ", ".join(f"{k} {v['bytes']}" for k, v in json.load(open(ri)).items() if k.endswith(".onnx")) + "\n")
+tp = {os.path.basename(p)[:-5]: json.load(open(p)) for p in glob.glob(os.path.join(R, "timing", "*.json"))}
+if "monkey_s_torch" in tp:
+    ref = dict(zip(tp["monkey_s_torch"]["ids"], tp["monkey_s_torch"]["preds"]))
+    for m in ("monkey_s_onnx_fp32", "monkey_s_onnx_int8"):
+        if m in tp:
+            o = dict(zip(tp[m]["ids"], tp[m]["preds"]))
+            same = sum(o[i] == ref.get(i) for i in o)
+            out.append(f"{m} vs PyTorch on the 330 timing formulas: {same}/{len(o)} identical outputs\n")
+
 ev = json.load(open(os.path.join(R, "eval.json"), encoding="utf-8"))
 items = ev["items"]
 rnd = random.Random(5)
