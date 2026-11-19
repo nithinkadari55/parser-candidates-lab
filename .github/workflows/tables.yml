@@ -1,0 +1,240 @@
+name: tables
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - "tables/**"
+      - ".github/workflows/tables.yml"
+
+env:
+  TB_WORK: ${{ github.workspace }}/tables/work
+  PYTHONUNBUFFERED: "1"
+  HF_HUB_DISABLE_PROGRESS_BARS: "1"
+
+jobs:
+  prep:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: tables/requirements.txt
+      - name: Install
+        run: |
+          pip install -r tables/requirements.txt
+          pip uninstall -y opencv-python opencv-python-headless || true
+          pip install opencv-python-headless==5.1.0.95
+      - name: Restore raw data
+        id: raw
+        uses: actions/cache/restore@v4
+        with:
+          path: tables/work/data/raw
+          key: tables-raw-v1
+      - name: Fetch raw data
+        if: steps.raw.outputs.cache-hit != 'true'
+        working-directory: tables/src
+        run: python fetch_data.py ptn ftn pt1m icdar ours
+      - name: Save raw data
+        if: steps.raw.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: tables/work/data/raw
+          key: tables-raw-v1
+      - name: Restore sets
+        id: sets
+        uses: actions/cache/restore@v4
+        with:
+          path: tables/work/data/sets
+          key: tables-sets-v1-${{ hashFiles('tables/src/prep_sets.py', 'tables/src/prep_icdar.py', 'tables/src/fetch_data.py') }}
+      - name: Build sets (sample, tag, stratify)
+        if: steps.sets.outputs.cache-hit != 'true'
+        working-directory: tables/src
+        run: |
+          python prep_sets.py ptn > ../work/prep_ptn.log 2>&1 &
+          python prep_sets.py ftn > ../work/prep_ftn.log 2>&1 &
+          python prep_sets.py pt1m > ../work/prep_pt1m.log 2>&1 &
+          python prep_icdar.py > ../work/prep_icdar.log 2>&1 &
+          wait
+          tail -n 3 ../work/prep_*.log | cut -c1-400
+          for s in ptn ftn pt1m icdar; do test -s ../work/data/sets/$s/index.json; done
+      - name: Save sets
+        if: steps.sets.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: tables/work/data/sets
+          key: tables-sets-v1-${{ hashFiles('tables/src/prep_sets.py', 'tables/src/prep_icdar.py', 'tables/src/fetch_data.py') }}
+      - name: Set summary (counts only)
+        working-directory: tables/src
+        run: |
+          python - <<'EOF' | tee -a "$GITHUB_STEP_SUMMARY"
+          import json, glob, os, collections
+          from paths import SETS
+          print("| set | n | simple | medium | edge | complex |\n|---|---|---|---|---|---|")
+          for s in ["ptn", "ftn", "pt1m", "icdar"]:
+              ids = json.load(open(os.path.join(SETS, s, "index.json")))
+              c = collections.Counter(json.load(open(os.path.join(SETS, s, i + ".json"), encoding="utf-8"))["tags"]["bucket"] for i in ids)
+              print(f"| {s} | {len(ids)} | {c['simple']} | {c['medium']} | {c['edge']} | {c['complex']} |")
+          EOF
+
+  run:
+    needs: prep
+    runs-on: ubuntu-latest
+    timeout-minutes: 150
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { model: tatr, shard: 0, nshards: 4 }
+          - { model: tatr, shard: 1, nshards: 4 }
+          - { model: tatr, shard: 2, nshards: 4 }
+          - { model: tatr, shard: 3, nshards: 4 }
+          - { model: slanet1m, shard: 0, nshards: 2 }
+          - { model: slanet1m, shard: 1, nshards: 2 }
+          - { model: tableformer, shard: 0, nshards: 8 }
+          - { model: tableformer, shard: 1, nshards: 8 }
+          - { model: tableformer, shard: 2, nshards: 8 }
+          - { model: tableformer, shard: 3, nshards: 8 }
+          - { model: tableformer, shard: 4, nshards: 8 }
+          - { model: tableformer, shard: 5, nshards: 8 }
+          - { model: tableformer, shard: 6, nshards: 8 }
+          - { model: tableformer, shard: 7, nshards: 8 }
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: tables/requirements.txt
+      - name: Install
+        run: |
+          pip install -r tables/requirements.txt
+          if [ "${{ matrix.model }}" = "tableformer" ]; then pip install docling-rs==2.84.0; fi
+          pip uninstall -y opencv-python opencv-python-headless || true
+          pip install opencv-python-headless==5.1.0.95
+          pip list 2>/dev/null | grep -i -E "onnxruntime|docling|numpy|pillow|opencv|rapid"
+      - uses: actions/cache/restore@v4
+        with:
+          path: tables/work/data/raw
+          key: tables-raw-v1
+          fail-on-cache-miss: true
+      - uses: actions/cache/restore@v4
+        with:
+          path: tables/work/data/sets
+          key: tables-sets-v1-${{ hashFiles('tables/src/prep_sets.py', 'tables/src/prep_icdar.py', 'tables/src/fetch_data.py') }}
+          fail-on-cache-miss: true
+      - name: Model cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            tables/work/models
+            tables/work/third
+            ~/.cache/docling.rs
+          key: tables-models-v1-${{ matrix.model }}
+      - name: Fetch models
+        working-directory: tables/src
+        run: python fetch_models.py ${{ matrix.model }} grits
+      - name: Run model
+        working-directory: tables/src
+        run: |
+          nproc; free -g
+          if [ "${{ matrix.model }}" = "tableformer" ]; then
+            python run_tableformer.py --shard ${{ matrix.shard }} --nshards ${{ matrix.nshards }}
+          else
+            python bench_models.py ${{ matrix.model }} --shard ${{ matrix.shard }} --nshards ${{ matrix.nshards }}
+          fi
+      - name: Our 7 tables
+        if: matrix.shard == 0
+        working-directory: tables/src
+        continue-on-error: true
+        run: python run_ours.py ${{ matrix.model }} | tee ../work/out/pred/ours_${{ matrix.model }}.txt
+      - name: Score
+        working-directory: tables/src
+        run: python score.py ../work/out/pred/${{ matrix.model }}_*_s${{ matrix.shard }}.jsonl --jobs 4
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: pred-${{ matrix.model }}-s${{ matrix.shard }}
+          path: tables/work/out/pred/
+          if-no-files-found: warn
+
+  timing:
+    needs: prep
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: tables/requirements.txt
+      - name: Install
+        run: |
+          pip install -r tables/requirements.txt docling-rs==2.84.0
+          pip uninstall -y opencv-python opencv-python-headless || true
+          pip install opencv-python-headless==5.1.0.95
+      - uses: actions/cache/restore@v4
+        with:
+          path: tables/work/data/sets
+          key: tables-sets-v1-${{ hashFiles('tables/src/prep_sets.py', 'tables/src/prep_icdar.py', 'tables/src/fetch_data.py') }}
+          fail-on-cache-miss: true
+      - name: Fetch models
+        working-directory: tables/src
+        run: python fetch_models.py tatr slanet1m tableformer
+      - name: Timing (one model process at a time)
+        working-directory: tables/src
+        run: |
+          nproc; lscpu | grep -E "Model name|^CPU\(s\)"; free -g
+          for th in 2 4; do
+            for m in tatr slanet1m tableformer; do python bench_speed.py $m $th; done
+          done
+          DOCLING_RS_TIMING=1 python bench_speed.py tableformer 4 > ../work/out/speed/tf_stage_timing.txt 2>&1 || true
+          tail -n 40 ../work/out/speed/tf_stage_timing.txt
+          cat /proc/cpuinfo | grep -m1 "model name" > ../work/out/speed/cpu.txt
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: speed
+          path: tables/work/out/speed/
+
+  aggregate:
+    needs: [run, timing]
+    if: always()
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - uses: actions/download-artifact@v4
+        with:
+          path: results
+      - name: Aggregate
+        run: |
+          python tables/src/agg.py results > /dev/null
+          {
+            echo "# Table structure benchmark"
+            echo "## Timing"; cat results/speed/cpu.txt 2>/dev/null; echo '```'; cat results/speed/speed.jsonl 2>/dev/null; echo '```'
+            echo "## Our 7 tables (cell accuracy vs truth.json)"; echo '```'; grep -h "MEAN cell_acc" results/*/ours_*.txt 2>/dev/null; echo '```'
+            cat results/report.md
+          } >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: report
+          path: results/report.md
