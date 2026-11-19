@@ -28,9 +28,9 @@ def pick():
     sel = C.selection_index()
     imgs = []
     for b in ("simple", "medium", "complex", "edge"):
-        imgs += [s for s in sel if s["bucket"] == b][1:4]
+        imgs += [s for s in sel if s["bucket"] == b][1:3]
     warm = os.path.join(C.ODB, "images", sel[0]["img"])
-    pdfs = [os.path.join(C.CORPUS, "pdf", "2206.01062.pdf"), os.path.join(C.CORPUS, "pdf", "amt_handbook_sample.pdf"),
+    pdfs = [os.path.join(C.CORPUS, "pdf", "2305.03393v1-pg9.pdf"), os.path.join(C.CORPUS, "pdf", "amt_handbook_sample.pdf"),
             os.path.join(C.CORPUS, "scanned", "ocr_test.pdf")]
     return warm, [os.path.join(C.ODB, "images", s["img"]) for s in imgs], pdfs
 
@@ -81,18 +81,21 @@ def main():
     if os.environ.get("PY_PP311"):
         runs.append(("pp_paddle311", os.environ["PY_PP311"], "run_pp.py", ["--tag", "pp311"]))
     res = {}
+    sizes = dict(dlrs=tree_size(os.path.join(C.DLRS_MODELS, "models")),
+                 pp=tree_size(os.path.join(C.HOME, ".paddlex", "official_models")))
+    tot = {k: sum(v["bytes"] for v in d.values()) for k, d in sizes.items()}
+    det = {}
     for tag, py, script, extra in runs:
         r = run(tag, py, script, extra, paths, out)
         res[tag] = summarize(r, names[0], names[1:1 + len(imgs)], names[1 + len(imgs):])
         res[tag]["md"] = md_hashes(r["dir"])
         print(tag, json.dumps({k: v for k, v in res[tag].items() if k != "md"})[:1500], flush=True)
-    det = {}
-    for s in ("dlrs", "pp"):
-        a, b = res[f"{s}_a"]["md"], res[f"{s}_b"]["md"]
-        det[s] = dict(files=len(a), identical=sum(1 for k in a if b.get(k) == a[k]), differing=sorted(k for k in a if b.get(k) != a[k]))
-    sizes = dict(dlrs=tree_size(os.path.join(C.DLRS_MODELS, "models")),
-                 pp=tree_size(os.path.join(C.HOME, ".paddlex", "official_models")))
-    tot = {k: sum(v["bytes"] for v in d.values()) for k, d in sizes.items()}
+        for s in ("dlrs", "pp"):
+            if f"{s}_a" in res and f"{s}_b" in res:
+                a, b = res[f"{s}_a"]["md"], res[f"{s}_b"]["md"]
+                det[s] = dict(files=len(a), identical=sum(1 for k in a if b.get(k) == a[k]), differing=sorted(k for k in a if b.get(k) != a[k]))
+        json.dump(dict(set=names, runs=res, determinism=det, model_sizes=sizes, model_total_bytes=tot,
+                       cpu=os.cpu_count()), open(os.path.join(out, "timing.json"), "w"), indent=1)
     json.dump(dict(set=names, runs=res, determinism=det, model_sizes=sizes, model_total_bytes=tot,
                    cpu=os.cpu_count()), open(os.path.join(out, "timing.json"), "w"), indent=1)
     print("determinism", det, "model bytes", tot)

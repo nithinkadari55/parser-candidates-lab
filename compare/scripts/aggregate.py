@@ -212,8 +212,8 @@ def main():
         for tag, r in T["runs"].items():
             pdfs = r.get("pdfs") or {}
             rows.append([tag, r.get("rc"), r.get("load_sec"), r.get("warmup_sec"), r.get("odb_sec_per_page_median"), r.get("odb_sec_per_page_mean")] +
-                        [pdfs.get(k, {}).get("sec_per_page") for k in ("2206.01062.pdf", "amt_handbook_sample.pdf", "ocr_test.pdf")] + [r.get("peak_rss_mb")])
-        md += [table(["run", "rc", "load s", "warm-up s", "ODB s/page median", "ODB s/page mean", "2206.01062 s/page", "amt_handbook s/page", "ocr_test (scan) s/page", "peak RSS MB"], rows), ""]
+                        [pdfs.get(k, {}).get("sec_per_page") for k in ("2305.03393v1-pg9.pdf", "amt_handbook_sample.pdf", "ocr_test.pdf")] + [r.get("peak_rss_mb")])
+        md += [table(["run", "rc", "load s", "warm-up s", "ODB s/page median", "ODB s/page mean", "2305.03393v1-pg9 s/page", "amt_handbook s/page", "ocr_test (scan) s/page", "peak RSS MB"], rows), ""]
         md += ["Determinism (same process config run twice, Markdown byte-identical): `" + json.dumps(T.get("determinism")) + "`", "",
                "Model bytes on disk: `" + json.dumps(T.get("model_total_bytes")) + "`", ""]
         rows = [[stack, name, v["bytes"] / 1e6, ", ".join(x for x in v.get("files", []) if not x.startswith("."))[:120]]

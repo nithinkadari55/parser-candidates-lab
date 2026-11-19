@@ -98,6 +98,7 @@ def main():
     ap.add_argument("--threads", type=int)
     ap.add_argument("--no-mkldnn", action="store_true")
     ap.add_argument("--tag", default="pp")
+    ap.add_argument("--skip-dir", help="Markdown already produced by an earlier run: skip those pages")
     a = ap.parse_args()
     os.makedirs(os.path.join(a.out, "md"), exist_ok=True)
     os.makedirs(os.path.join(a.out, "json"), exist_ok=True)
@@ -113,7 +114,12 @@ def main():
     with open(os.path.join(a.out, f"results-{a.tag}-{a.mode}-{a.k}.jsonl"), "w", encoding="utf-8") as f:
         C.write_jsonl(f, dict(meta=dict(stack=a.tag, mode=a.mode, versions=vers, init_kwargs=kw, load_sec=round(load, 2))))
         if a.mode == "odb":
-            for s in C.shard(C.selection_index(), a.k, a.n):
+            sel = C.selection_index()
+            if a.skip_dir and os.path.isdir(a.skip_dir):
+                done = {f[:-3] for f in os.listdir(a.skip_dir) if f.endswith(".md")}
+                sel = [s for s in sel if os.path.splitext(s["img"])[0] not in done]
+                print("skipping", len(done), "pages done earlier; left", len(sel), flush=True)
+            for s in C.shard(sel, a.k, a.n):
                 p = os.path.join(C.ODB, "images", s["img"])
                 try:
                     pages, dt = run(pipe, p)
