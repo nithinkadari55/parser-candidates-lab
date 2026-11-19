@@ -77,8 +77,9 @@ def main():
     names = [os.path.basename(p) for p in paths]
     py_dl, py_pp = os.environ["PY_DL"], os.environ["PY_PP"]
     runs = [("dlrs_a", py_dl, "run_dlrs.py", []), ("dlrs_b", py_dl, "run_dlrs.py", []),
-            ("pp_a", py_pp, "run_pp.py", []), ("pp_b", py_pp, "run_pp.py", []),
-            ("pp_threads4", py_pp, "run_pp.py", ["--threads", "4", "--tag", "pp_t4"])]
+            ("pp_a", py_pp, "run_pp.py", []), ("pp_b", py_pp, "run_pp.py", [])]
+    if os.environ.get("PY_PP311"):
+        runs.append(("pp_paddle311", os.environ["PY_PP311"], "run_pp.py", ["--tag", "pp311"]))
     res = {}
     for tag, py, script, extra in runs:
         r = run(tag, py, script, extra, paths, out)

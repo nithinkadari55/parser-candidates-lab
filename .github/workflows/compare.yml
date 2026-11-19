@@ -350,8 +350,9 @@ jobs:
       - run: |
           python -m venv /home/runner/vdl && /home/runner/vdl/bin/pip install -q -r compare/requirements-dl.txt
           python -m venv /home/runner/vpp && /home/runner/vpp/bin/pip install -q -r compare/requirements-pp.txt
+          python -m venv /home/runner/vpp311 && /home/runner/vpp311/bin/pip install -q paddlepaddle==3.1.1 "paddleocr[doc-parser,doc2md]==3.7.0" paddlex==3.7.2
       - run: nproc; lscpu | grep -E 'Model name|^CPU\(s\)'; free -m
-      - run: PY_DL=/home/runner/vdl/bin/python PY_PP=/home/runner/vpp/bin/python python compare/scripts/timing.py out/timing
+      - run: PY_DL=/home/runner/vdl/bin/python PY_PP=/home/runner/vpp/bin/python PY_PP311=/home/runner/vpp311/bin/python python compare/scripts/timing.py out/timing
       - run: rm -rf out/timing/*/md out/timing/*/json
       - uses: actions/upload-artifact@v4
         if: always()
@@ -490,27 +491,23 @@ jobs:
           path: /home/runner/odb
           key: ${{ env.ODB_KEY }}
           fail-on-cache-miss: true
-      - uses: actions/download-artifact@v4
-        with:
-          pattern: pred-${{ matrix.method == 'pp' && 'pp' || 'dlrs' }}-*
-          path: preds
-          merge-multiple: true
-          run-id: ${{ inputs.reuse_run || github.run_id }}
-          github-token: ${{ github.token }}
-      - if: matrix.method == 'dlrs_formula'
-        uses: actions/download-artifact@v4
-        with:
-          pattern: pred-dlrsf-*
-          path: predsf
-          merge-multiple: true
-          run-id: ${{ inputs.reuse_run || github.run_id }}
-          github-token: ${{ github.token }}
-      - run: |
-          mkdir -p /home/runner/md/${{ matrix.method }}
-          cp preds/md/*.md /home/runner/md/${{ matrix.method }}/
-          if [ -d predsf/md ]; then cp predsf/md/*.md /home/runner/md/${{ matrix.method }}/; fi
-          ls /home/runner/md/${{ matrix.method }} | wc -l
-          python compare/scripts/odb_eval.py ${{ matrix.method }} /home/runner/md/${{ matrix.method }} /home/runner/odb-eval out
+      - env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          M=${{ matrix.method }}
+          D=/home/runner/md/$M
+          mkdir -p $D
+          pats="pred-dlrs-"
+          if [ "$M" = pp ]; then pats="pred-pp-"; fi
+          if [ "$M" = dlrs_formula ]; then pats="pred-dlrs- pred-dlrsf-"; fi
+          for p in $pats; do
+            for id in ${{ inputs.extra_runs }} ${{ inputs.reuse_run }} ${{ github.run_id }}; do
+              rm -rf dl && gh run download "$id" -R "${{ github.repository }}" -p "${p}*" -D dl || echo "no $p in $id"
+              for d in dl/*/md; do if [ -d "$d" ]; then cp "$d"/*.md $D/; echo "$id $d $(ls $d | wc -l)"; fi; done
+            done
+          done
+          ls $D | wc -l
+          python compare/scripts/odb_eval.py $M $D /home/runner/odb-eval out
       - uses: actions/upload-artifact@v4
         if: always()
         with:
