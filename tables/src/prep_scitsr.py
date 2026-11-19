@@ -61,14 +61,19 @@ def main():
                 inside = sum(1 for w_ in cand if 0 <= (w_["bbox"][0] + w_["bbox"][2]) / 2 <= im.size[0] and 0 <= (w_["bbox"][1] + w_["bbox"][3]) / 2 <= im.size[1])
                 if best is None or inside > best[0]: best = (inside, cand, (ox, oy))
             words = best[1]; sx = sy = S
-            if best[0] < len(ws): print("words partly outside", r["table_id"], best[0], len(ws), best[2], (cl, cb, cr, ct), (ml, mb, mr, mt), p0.bbox if False else "", im.size)
+            if not words: raise ValueError("no words")
+            x0 = max(0, min(w_["bbox"][0] for w_ in words) - 8 * S); y0 = max(0, min(w_["bbox"][1] for w_ in words) - 8 * S)
+            x1 = min(im.size[0], max(w_["bbox"][2] for w_ in words) + 8 * S); y1 = min(im.size[1], max(w_["bbox"][3] for w_ in words) + 8 * S)
+            im = im.crop((int(x0), int(y0), int(x1), int(y1)))
+            for w_ in words: w_["bbox"] = [w_["bbox"][0] - int(x0), w_["bbox"][1] - int(y0), w_["bbox"][2] - int(x0), w_["bbox"][3] - int(y0)]
+            crop_px = [int(x0), int(y0)]
             toks, cells = build(r["cells"])
             T = tag(dict(html=toks, cells=[[dict(tokens=list(c["text"]), bbox=c["bbox"]) for c in cells]]), im)
         except Exception as e:
             print("skip", r.get("table_id"), repr(e)[:200]); continue
         tid = "scitsr_" + re.sub(r"[^A-Za-z0-9]", "", r["table_id"])
         open(os.path.join(out, tid + ".pdf"), "wb").write(r["pdf"])
-        recs[tid] = (im, dict(filename=r["table_id"], html=toks, cells=cells, words=words, pdf_scale=[sx, sy], licence=r.get("paper_license")))
+        recs[tid] = (im, dict(filename=r["table_id"], html=toks, cells=cells, words=words, pdf_scale=[sx, sy], crop_px=crop_px, licence=r.get("paper_license")))
         chosen.append((tid, T))
     write_set("scitsr", chosen, lambda k: (k, recs[k][0], recs[k][1]))
 

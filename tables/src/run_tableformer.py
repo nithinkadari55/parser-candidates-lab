@@ -96,7 +96,8 @@ def run_scitsr(conv, ids, of):
                 best = max(tabs, key=lambda t_: len(t_["data"]["table_cells"]))
                 p = best["prov"][0]
                 cells = cells_of(best, ph.get(p["page_no"], list(ph.values())[0]), 0, 0, 1.0)
-                for c in cells: c["bbox"] = [c["bbox"][0] * sx, c["bbox"][1] * sy, c["bbox"][2] * sx, c["bbox"][3] * sy]
+                cx, cy = g.get("crop_px", [0, 0])
+                for c in cells: c["bbox"] = [c["bbox"][0] * sx - cx, c["bbox"][1] * sy - cy, c["bbox"][2] * sx - cx, c["bbox"][3] * sy - cy]
                 rec["cells"] = cells
             else:
                 rec["cells"] = []; rec["err"] = "no table detected"

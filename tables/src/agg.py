@@ -128,6 +128,8 @@ def main():
         if m != "tableformer" and "tableformer" in rank: pairs.append((m, "tableformer"))
     for v in ("tatr32", "tatr16", "tatr4"):
         if v in have and "tatr" in have: pairs.append((v, "tatr"))
+    for a_, b_ in (("potatr8", "potatr"), ("tfv2q", "tfv2")):
+        if a_ in have and b_ in have: pairs.append((a_, b_))
     seen = set()
     for a_, b_ in pairs:
         if (a_, b_) in seen: continue
@@ -148,14 +150,14 @@ def main():
                 ids = [i for i, r_ in tf.items() if r_.get("n_cells") and i in da and i in db]
                 r = paired(da, db, ids)
                 if r: P(f"- {a_} vs {b_} [{s}, tf-found only]: n={r['n']} diff={r['diff']:+.4f} CI [{r['lo']:+.4f}, {r['hi']:+.4f}] p={r['p']:.2g} wins/losses {r['wins']}/{r['losses']}")
-    P("\n## 7. TATR precision variants vs FP32: tables whose predicted structure (cell grid) differs from FP32")
-    for v in ("tatr16", "tatr", "tatr4"):
+    P("\n## 7. Precision variants vs their full-precision reference: tables whose predicted structure (cell grid) differs")
+    for ref, v in (("tatr32", "tatr16"), ("tatr32", "tatr"), ("tatr32", "tatr4"), ("potatr", "potatr8"), ("tfv2", "tfv2q")):
         for s in SETS:
-            a = load(root, "tatr32", s, False); b = load(root, v, s, False)
+            a = load(root, ref, s, False); b = load(root, v, s, False)
             if not a or not b: continue
             ids = set(a) & set(b)
             ch = sum(1 for i in ids if struct(a[i]) != struct(b[i]))
-            P(f"- {v} vs tatr32 [{s}]: {ch} of {len(ids)} tables changed ({100 * ch / max(1, len(ids)):.1f}%)")
+            P(f"- {v} vs {ref} [{s}]: {ch} of {len(ids)} tables changed ({100 * ch / max(1, len(ids)):.1f}%)")
     P("\n## 8. Lowest TEDS-Struct per model (ids only)")
     for m in have:
         rs = []

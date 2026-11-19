@@ -13,6 +13,23 @@ def export():
     os.makedirs(O, exist_ok=True)
     torch.backends.mha.set_fastpath_enabled(False)
     m = TableFormerV2.from_pretrained(D).eval()
+    import types
+    import torch.nn.functional as F
+
+    def mha_forward(self, query, key, value, key_padding_mask=None, need_weights=False, attn_mask=None, **kw):
+        E = self.embed_dim; h = self.num_heads; d = E // h
+        W, b = self.in_proj_weight, self.in_proj_bias
+        q = F.linear(query, W[:E], b[:E]).unflatten(-1, (h, d)).transpose(1, 2)
+        k = F.linear(key, W[E:2 * E], b[E:2 * E]).unflatten(-1, (h, d)).transpose(1, 2)
+        v = F.linear(value, W[2 * E:], b[2 * E:]).unflatten(-1, (h, d)).transpose(1, 2)
+        sc = torch.matmul(q, k.transpose(-2, -1)) / (d ** 0.5)
+        if attn_mask is not None:
+            sc = sc.masked_fill(attn_mask, float("-inf")) if attn_mask.dtype == torch.bool else sc + attn_mask
+        o = torch.matmul(torch.softmax(sc, dim=-1), v).transpose(1, 2).flatten(-2)
+        return self.out_proj(o), None
+
+    for mod in m.modules():
+        if isinstance(mod, torch.nn.MultiheadAttention): mod.forward = types.MethodType(mha_forward, mod)
 
     class Enc(torch.nn.Module):
         def __init__(s, m): super().__init__(); s.m = m
