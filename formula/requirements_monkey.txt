@@ -21,3 +21,4 @@ pillow==13.0.0
 tqdm
 onnxruntime==1.32.0
 onnx==1.16.2
+ml_dtypes==0.4.1

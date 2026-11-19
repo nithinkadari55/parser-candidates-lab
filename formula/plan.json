@@ -10,11 +10,11 @@
   "p2t15_int4_b32": 14,
   "p2t15_int4_b128": 14,
   "pp_formulanet_plus_s": 4,
-  "unirec_0_1b": 7,
+  "unirec_0_1b": 9,
   "doctr_formulanet": 4,
   "doctr_formulanet_int8": 6,
-  "monkey_s_torch": 12,
-  "monkey_s_onnx_int8": 12
+  "monkey_s_torch": 18,
+  "monkey_s_onnx_int8": 14
  },
  "cdm_shards": 2
 }

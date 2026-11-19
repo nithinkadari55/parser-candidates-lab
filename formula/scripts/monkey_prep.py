@@ -56,6 +56,8 @@ def export():
     mt = MonkeyTorch(4)
     vedm = mt.model.model.model
     vedm.eval()
+    for prm in vedm.parameters():
+        prm.requires_grad_(False)
 
     class Enc(torch.nn.Module):
         def forward(self, pixel_values):
