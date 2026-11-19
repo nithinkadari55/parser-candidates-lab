@@ -7,11 +7,14 @@ UNIMER_REV = "2343ddd963290469da36ca83e3a56c66e068add9"
 UA = {"User-Agent": "formula-bench/0.1 (research benchmark; local evaluation only)"}
 
 
-def get(url):
+def get(url, limit=None):
     for k in range(8):
         time.sleep(3.5)
         try:
             with urllib.request.urlopen(urllib.request.Request(url, headers=UA), timeout=180) as r:
+                n = r.headers.get("Content-Length")
+                if limit and n and int(n) > limit:
+                    return None
                 return r.read()
         except urllib.error.HTTPError as e:
             if e.code not in (429, 500, 502, 503, 504):
@@ -29,8 +32,7 @@ def unimer():
                         local_dir=os.path.join(D, "unimer"))
     out = os.path.join(D, "unimer", "x")
     with zipfile.ZipFile(z) as zf:
-        names = [n for n in zf.namelist() if not n.startswith("UniMER-Test/hwe")]
-        zf.extractall(out, members=names)
+        zf.extractall(out)
     os.remove(z)
 
 
@@ -41,17 +43,34 @@ def arxiv():
         aid = p["id"]
         pd = os.path.join(D, "arxiv", aid)
         os.makedirs(os.path.join(pd, "src"), exist_ok=True)
-        src = get(f"https://arxiv.org/e-print/{aid}")
+        try:
+            src = get(f"https://arxiv.org/e-print/{aid}", limit=30_000_000)
+        except Exception as e:
+            print("skip", aid, e, flush=True)
+            continue
+        if src is None:
+            print("skip too big", aid, flush=True)
+            continue
         if src[:2] == b"\x1f\x8b":
             src = gzip.decompress(src)
+        if src[:4] == b"%PDF":
+            print("skip pdf-only", aid, flush=True)
+            continue
         try:
             with tarfile.open(fileobj=io.BytesIO(src)) as tf:
                 mem = [m for m in tf.getmembers() if m.isfile() and m.name.lower().endswith((".tex", ".sty", ".bbl", ".def", ".cls", ".ltx"))]
                 tf.extractall(os.path.join(pd, "src"), members=mem, filter="data")
         except tarfile.ReadError:
             open(os.path.join(pd, "src", "main.tex"), "wb").write(src)
-        pdf = get(f"https://arxiv.org/pdf/{aid}")
-        if pdf[:4] != b"%PDF":
+        except Exception as e:
+            print("skip bad archive", aid, e, flush=True)
+            continue
+        try:
+            pdf = get(f"https://arxiv.org/pdf/{aid}", limit=60_000_000)
+        except Exception as e:
+            print("skip", aid, e, flush=True)
+            continue
+        if not pdf or pdf[:4] != b"%PDF":
             print("no pdf", aid)
             continue
         open(os.path.join(pd, "paper.pdf"), "wb").write(pdf)

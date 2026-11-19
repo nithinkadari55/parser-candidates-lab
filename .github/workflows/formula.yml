@@ -2,97 +2,177 @@ name: formula
 
 on:
   workflow_dispatch:
+    inputs:
+      mode:
+        description: "probe (prep + small probe of every model) or full (whole benchmark)"
+        type: choice
+        options: [probe, full]
+        default: probe
   push:
     paths:
       - "formula/**"
       - ".github/workflows/formula.yml"
 
 concurrency:
-  group: formula-${{ github.ref }}
+  group: formula-${{ github.ref }}-${{ inputs.mode || 'probe' }}
   cancel-in-progress: true
 
 permissions:
   contents: read
 
+env:
+  MODE: ${{ inputs.mode || 'probe' }}
+
 jobs:
-  prep:
+  prep-models:
     runs-on: ubuntu-latest
     timeout-minutes: 120
-    defaults:
-      run:
-        working-directory: formula
+    defaults: { run: { working-directory: formula } }
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
-          cache: pip
-          cache-dependency-path: formula/requirements.txt
+        with: { python-version: "3.11", cache: pip, cache-dependency-path: formula/requirements.txt }
       - run: pip install -r requirements.txt
-      - id: mcache
+      - id: c
         uses: actions/cache@v4
         with:
           path: formula/models
-          key: formula-models-v1-${{ hashFiles('formula/requirements.txt', 'formula/scripts/fetch_models.py', 'formula/scripts/quant.py', 'formula/scripts/split_dec.py') }}
-      - name: Download models, build own INT8, split decoders
-        if: steps.mcache.outputs.cache-hit != 'true'
+          key: formula-mfr-v2-${{ hashFiles('formula/requirements.txt', 'formula/scripts/fetch_models.py', 'formula/scripts/quant.py', 'formula/scripts/split_dec.py', 'formula/scripts/build_variants.py', 'formula/scripts/mfr.py', 'formula/gt.json', 'formula/crops/**') }}
+      - name: MFR 1.5 fp32, own INT8, split decoder, fp16, int16, int4 variants
+        if: steps.c.outputs.cache-hit != 'true'
         run: python scripts/fetch_models.py
-      - id: dcache
+      - run: cat models/variants_status.json; du -sh models/*
+
+  prep-ref:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    defaults: { run: { working-directory: formula } }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.11", cache: pip, cache-dependency-path: formula/requirements.txt }
+      - run: pip install -r requirements.txt
+      - id: c
+        uses: actions/cache@v4
+        with:
+          path: formula/models_ref
+          key: formula-ref-v2-${{ hashFiles('formula/requirements.txt', 'formula/scripts/fetch_ref.py') }}
+      - name: PP-FormulaNet_plus-S, UniRec-0.1B, docTR FormulaNet (+ INT8)
+        if: steps.c.outputs.cache-hit != 'true'
+        run: python scripts/fetch_ref.py
+      - run: du -sh models_ref/*
+
+  prep-data:
+    runs-on: ubuntu-latest
+    timeout-minutes: 150
+    defaults: { run: { working-directory: formula } }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.11", cache: pip, cache-dependency-path: formula/requirements.txt }
+      - run: pip install -r requirements.txt
+      - id: c
         uses: actions/cache@v4
         with:
           path: |
             formula/data
             formula/manifests
-          key: formula-data-v1-${{ hashFiles('formula/requirements.txt', 'formula/papers.json', 'formula/gt.json', 'formula/crops/**', 'formula/scripts/fetch_data.py', 'formula/scripts/arxiv_extract.py', 'formula/scripts/mk_unimer.py', 'formula/scripts/mk_wl.py', 'formula/scripts/texnorm.py', 'formula/scripts/mk_timing.py', 'formula/scripts/prune.py') }}
-      - name: Download UniMER-Test and arXiv papers, build crops and manifests
-        if: steps.dcache.outputs.cache-hit != 'true'
+          key: formula-data-v2-${{ hashFiles('formula/requirements.txt', 'formula/papers.json', 'formula/gt.json', 'formula/crops/**', 'formula/scripts/fetch_data.py', 'formula/scripts/arxiv_extract.py', 'formula/scripts/mk_unimer.py', 'formula/scripts/mk_wl.py', 'formula/scripts/texnorm.py', 'formula/scripts/taxonomy.py', 'formula/scripts/mk_timing.py', 'formula/scripts/mk_cdm_subset.py', 'formula/scripts/prune.py') }}
+      - name: UniMER-Test (full), arXiv sources and PDFs, crops and manifests
+        if: steps.c.outputs.cache-hit != 'true'
         run: |
+          python -c "from huggingface_hub import hf_hub_download; hf_hub_download('breezedeus/pix2text-mfr-1.5', 'tokenizer.json', revision='1cef9f0bdcd6a4c63df7de1311fb0894593340cc', local_dir='models/breezedeus__pix2text-mfr-1.5')"
           python scripts/fetch_data.py unimer arxiv
           mkdir -p manifests
           python scripts/mk_wl.py
           python scripts/mk_unimer.py
           python scripts/arxiv_extract.py
-          python scripts/mk_timing.py x
+          python scripts/mk_timing.py
+          python scripts/mk_cdm_subset.py
           python scripts/prune.py
-      - name: Dataset counts and model files
-        run: |
-          python scripts/counts.py
-          cat models/models_info.json
+      - run: python scripts/counts.py; du -sh data
 
-  acc:
-    needs: prep
+  probe:
+    if: ${{ (inputs.mode || 'probe') == 'probe' }}
+    needs: [prep-models, prep-ref, prep-data]
     runs-on: ubuntu-latest
     timeout-minutes: 120
-    strategy:
-      fail-fast: false
-      matrix:
-        model: [p2t15_fp32, p2t10_int8_mathorium, p2t15_int8_own]
-        shard: [0, 1, 2, 3, 4, 5]
-    defaults:
-      run:
-        working-directory: formula
+    defaults: { run: { working-directory: formula } }
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
-          cache: pip
-          cache-dependency-path: formula/requirements.txt
+        with: { python-version: "3.11", cache: pip, cache-dependency-path: formula/requirements.txt }
       - run: pip install -r requirements.txt
       - uses: actions/cache/restore@v4
         with:
           path: formula/models
-          key: formula-models-v1-${{ hashFiles('formula/requirements.txt', 'formula/scripts/fetch_models.py', 'formula/scripts/quant.py', 'formula/scripts/split_dec.py') }}
+          key: formula-mfr-v2-${{ hashFiles('formula/requirements.txt', 'formula/scripts/fetch_models.py', 'formula/scripts/quant.py', 'formula/scripts/split_dec.py', 'formula/scripts/build_variants.py', 'formula/scripts/mfr.py', 'formula/gt.json', 'formula/crops/**') }}
+          fail-on-cache-miss: true
+      - uses: actions/cache/restore@v4
+        with:
+          path: formula/models_ref
+          key: formula-ref-v2-${{ hashFiles('formula/requirements.txt', 'formula/scripts/fetch_ref.py') }}
           fail-on-cache-miss: true
       - uses: actions/cache/restore@v4
         with:
           path: |
             formula/data
             formula/manifests
-          key: formula-data-v1-${{ hashFiles('formula/requirements.txt', 'formula/papers.json', 'formula/gt.json', 'formula/crops/**', 'formula/scripts/fetch_data.py', 'formula/scripts/arxiv_extract.py', 'formula/scripts/mk_unimer.py', 'formula/scripts/mk_wl.py', 'formula/scripts/texnorm.py', 'formula/scripts/mk_timing.py', 'formula/scripts/prune.py') }}
+          key: formula-data-v2-${{ hashFiles('formula/requirements.txt', 'formula/papers.json', 'formula/gt.json', 'formula/crops/**', 'formula/scripts/fetch_data.py', 'formula/scripts/arxiv_extract.py', 'formula/scripts/mk_unimer.py', 'formula/scripts/mk_wl.py', 'formula/scripts/texnorm.py', 'formula/scripts/taxonomy.py', 'formula/scripts/mk_timing.py', 'formula/scripts/mk_cdm_subset.py', 'formula/scripts/prune.py') }}
           fail-on-cache-miss: true
-      - name: Recognise shard (original ONNX graphs, greedy, 512-token cap, 4 threads)
-        run: python scripts/run_shard.py ${{ matrix.model }} ${{ matrix.shard }} 6 4
+      - run: python scripts/counts.py
+      - run: PROBE_N=24 python scripts/probe.py
+
+  plan:
+    if: ${{ inputs.mode == 'full' }}
+    needs: [prep-models, prep-ref, prep-data]
+    runs-on: ubuntu-latest
+    outputs:
+      acc: ${{ steps.p.outputs.acc }}
+      timing: ${{ steps.p.outputs.timing }}
+      cdm: ${{ steps.p.outputs.cdm }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: p
+        run: |
+          echo "acc=$(python3 formula/scripts/plan.py acc)" >> "$GITHUB_OUTPUT"
+          echo "timing=$(python3 formula/scripts/plan.py timing)" >> "$GITHUB_OUTPUT"
+          echo "cdm=$(python3 formula/scripts/plan.py cdm)" >> "$GITHUB_OUTPUT"
+
+  acc:
+    needs: plan
+    runs-on: ubuntu-latest
+    timeout-minutes: 125
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.plan.outputs.acc) }}
+    defaults: { run: { working-directory: formula } }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.11", cache: pip, cache-dependency-path: formula/requirements.txt }
+      - run: pip install -r requirements.txt
+      - if: startsWith(matrix.model, 'p2t15')
+        uses: actions/cache/restore@v4
+        with:
+          path: formula/models
+          key: formula-mfr-v2-${{ hashFiles('formula/requirements.txt', 'formula/scripts/fetch_models.py', 'formula/scripts/quant.py', 'formula/scripts/split_dec.py', 'formula/scripts/build_variants.py', 'formula/scripts/mfr.py', 'formula/gt.json', 'formula/crops/**') }}
+          fail-on-cache-miss: true
+      - if: ${{ !startsWith(matrix.model, 'p2t15') }}
+        uses: actions/cache/restore@v4
+        with:
+          path: formula/models_ref
+          key: formula-ref-v2-${{ hashFiles('formula/requirements.txt', 'formula/scripts/fetch_ref.py') }}
+          fail-on-cache-miss: true
+      - uses: actions/cache/restore@v4
+        with:
+          path: |
+            formula/data
+            formula/manifests
+          key: formula-data-v2-${{ hashFiles('formula/requirements.txt', 'formula/papers.json', 'formula/gt.json', 'formula/crops/**', 'formula/scripts/fetch_data.py', 'formula/scripts/arxiv_extract.py', 'formula/scripts/mk_unimer.py', 'formula/scripts/mk_wl.py', 'formula/scripts/texnorm.py', 'formula/scripts/taxonomy.py', 'formula/scripts/mk_timing.py', 'formula/scripts/mk_cdm_subset.py', 'formula/scripts/prune.py') }}
+          fail-on-cache-miss: true
+      - name: Recognise shard (4 threads)
+        run: BUDGET_S=6600 python scripts/run_shard.py ${{ matrix.model }} ${{ matrix.shard }} ${{ matrix.n }} 4 ${{ matrix.sets }}
       - uses: actions/upload-artifact@v4
         with:
           name: acc-${{ matrix.model }}-s${{ matrix.shard }}
@@ -100,85 +180,126 @@ jobs:
           retention-days: 30
 
   timing:
-    needs: prep
+    needs: plan
     runs-on: ubuntu-latest
-    timeout-minutes: 90
-    defaults:
-      run:
-        working-directory: formula
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.plan.outputs.timing) }}
+    defaults: { run: { working-directory: formula } }
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
-          cache: pip
-          cache-dependency-path: formula/requirements.txt
+        with: { python-version: "3.11", cache: pip, cache-dependency-path: formula/requirements.txt }
       - run: pip install -r requirements.txt
-      - uses: actions/cache/restore@v4
+      - if: startsWith(matrix.model, 'p2t15')
+        uses: actions/cache/restore@v4
         with:
           path: formula/models
-          key: formula-models-v1-${{ hashFiles('formula/requirements.txt', 'formula/scripts/fetch_models.py', 'formula/scripts/quant.py', 'formula/scripts/split_dec.py') }}
+          key: formula-mfr-v2-${{ hashFiles('formula/requirements.txt', 'formula/scripts/fetch_models.py', 'formula/scripts/quant.py', 'formula/scripts/split_dec.py', 'formula/scripts/build_variants.py', 'formula/scripts/mfr.py', 'formula/gt.json', 'formula/crops/**') }}
+          fail-on-cache-miss: true
+      - if: ${{ !startsWith(matrix.model, 'p2t15') }}
+        uses: actions/cache/restore@v4
+        with:
+          path: formula/models_ref
+          key: formula-ref-v2-${{ hashFiles('formula/requirements.txt', 'formula/scripts/fetch_ref.py') }}
           fail-on-cache-miss: true
       - uses: actions/cache/restore@v4
         with:
           path: |
             formula/data
             formula/manifests
-          key: formula-data-v1-${{ hashFiles('formula/requirements.txt', 'formula/papers.json', 'formula/gt.json', 'formula/crops/**', 'formula/scripts/fetch_data.py', 'formula/scripts/arxiv_extract.py', 'formula/scripts/mk_unimer.py', 'formula/scripts/mk_wl.py', 'formula/scripts/texnorm.py', 'formula/scripts/mk_timing.py', 'formula/scripts/prune.py') }}
+          key: formula-data-v2-${{ hashFiles('formula/requirements.txt', 'formula/papers.json', 'formula/gt.json', 'formula/crops/**', 'formula/scripts/fetch_data.py', 'formula/scripts/arxiv_extract.py', 'formula/scripts/mk_unimer.py', 'formula/scripts/mk_wl.py', 'formula/scripts/texnorm.py', 'formula/scripts/taxonomy.py', 'formula/scripts/mk_timing.py', 'formula/scripts/mk_cdm_subset.py', 'formula/scripts/prune.py') }}
           fail-on-cache-miss: true
-      - name: Timing, one model process at a time, 4 threads
+      - name: Timing on the 330-formula set, one model, 4 threads, nothing else in this job
         run: |
           nproc; free -m; lscpu | grep -E "Model name|^CPU\(s\)"
-          for m in p2t15_fp32 p2t10_int8_mathorium p2t15_int8_own; do
-            python scripts/timing.py $m 4
-            python scripts/timing.py $m 4 fast
-          done
+          python scripts/timing.py ${{ matrix.model }} 4
+          mkdir -p results/timing && lscpu | grep "Model name" > results/timing/${{ matrix.model }}.cpu.txt
       - uses: actions/upload-artifact@v4
         with:
-          name: timing
-          path: formula/results/timing/*.json
+          name: timing-${{ matrix.model }}
+          path: formula/results/timing/*
+          retention-days: 30
+
+  cdm:
+    needs: [plan, acc]
+    if: ${{ !cancelled() && needs.plan.result == 'success' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.plan.outputs.cdm) }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.10" }
+      - name: TeX Live subset, ImageMagick, Ghostscript, CDM (UniMERNet @5a2c80d)
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q --no-install-recommends texlive-latex-base texlive-latex-recommended texlive-latex-extra texlive-fonts-recommended imagemagick ghostscript
+          sudo sed -i 's/rights="none" pattern="PDF"/rights="read|write" pattern="PDF"/' /etc/ImageMagick-6/policy.xml
+          printf '#!/bin/sh\nexec convert "$@"\n' | sudo tee /usr/local/bin/magick && sudo chmod +x /usr/local/bin/magick
+          git clone -q https://github.com/opendatalab/UniMERNet.git /tmp/UniMERNet && git -C /tmp/UniMERNet checkout -q 5a2c80d96b1d2dba447ff18d873e5fb73ba03c35
+          pip install -q tqdm matplotlib "numpy<2.0.0" "scikit-image<=0.20.0" scipy "opencv-python-headless<4.12"
+          node --version; pdflatex -version | head -1; kpsewhich upgreek.sty
+      - uses: actions/cache/restore@v4
+        with:
+          path: |
+            formula/data
+            formula/manifests
+          key: formula-data-v2-${{ hashFiles('formula/requirements.txt', 'formula/papers.json', 'formula/gt.json', 'formula/crops/**', 'formula/scripts/fetch_data.py', 'formula/scripts/arxiv_extract.py', 'formula/scripts/mk_unimer.py', 'formula/scripts/mk_wl.py', 'formula/scripts/texnorm.py', 'formula/scripts/taxonomy.py', 'formula/scripts/mk_timing.py', 'formula/scripts/mk_cdm_subset.py', 'formula/scripts/prune.py') }}
+          fail-on-cache-miss: true
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: acc-${{ matrix.model }}-s*
+          merge-multiple: true
+          path: formula/results/acc
+      - name: CDM on the fixed 3000-case subset
+        run: python formula/scripts/cdm_run.py ${{ matrix.model }} ${{ matrix.shard }} ${{ matrix.n }} /tmp/UniMERNet/cdm
+      - uses: actions/upload-artifact@v4
+        with:
+          name: cdm-${{ matrix.model }}-s${{ matrix.shard }}
+          path: formula/results/cdm/*.json
           retention-days: 30
 
   aggregate:
-    needs: [prep, acc, timing]
-    if: ${{ !cancelled() && needs.prep.result == 'success' }}
+    needs: [plan, acc, timing, cdm]
+    if: ${{ !cancelled() && needs.plan.result == 'success' }}
     runs-on: ubuntu-latest
-    timeout-minutes: 30
-    defaults:
-      run:
-        working-directory: formula
+    timeout-minutes: 90
+    defaults: { run: { working-directory: formula } }
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
-          cache: pip
-          cache-dependency-path: formula/requirements.txt
+        with: { python-version: "3.11", cache: pip, cache-dependency-path: formula/requirements.txt }
       - run: pip install -r requirements.txt
-      - uses: actions/cache/restore@v4
-        with:
-          path: formula/models
-          key: formula-models-v1-${{ hashFiles('formula/requirements.txt', 'formula/scripts/fetch_models.py', 'formula/scripts/quant.py', 'formula/scripts/split_dec.py') }}
       - uses: actions/cache/restore@v4
         with:
           path: |
             formula/data
             formula/manifests
-          key: formula-data-v1-${{ hashFiles('formula/requirements.txt', 'formula/papers.json', 'formula/gt.json', 'formula/crops/**', 'formula/scripts/fetch_data.py', 'formula/scripts/arxiv_extract.py', 'formula/scripts/mk_unimer.py', 'formula/scripts/mk_wl.py', 'formula/scripts/texnorm.py', 'formula/scripts/mk_timing.py', 'formula/scripts/prune.py') }}
+          key: formula-data-v2-${{ hashFiles('formula/requirements.txt', 'formula/papers.json', 'formula/gt.json', 'formula/crops/**', 'formula/scripts/fetch_data.py', 'formula/scripts/arxiv_extract.py', 'formula/scripts/mk_unimer.py', 'formula/scripts/mk_wl.py', 'formula/scripts/texnorm.py', 'formula/scripts/taxonomy.py', 'formula/scripts/mk_timing.py', 'formula/scripts/mk_cdm_subset.py', 'formula/scripts/prune.py') }}
           fail-on-cache-miss: true
-      - uses: actions/download-artifact@v4
+      - uses: actions/cache/restore@v4
         with:
-          pattern: acc-*
-          merge-multiple: true
-          path: formula/results/acc
+          path: formula/models
+          key: formula-mfr-v2-${{ hashFiles('formula/requirements.txt', 'formula/scripts/fetch_models.py', 'formula/scripts/quant.py', 'formula/scripts/split_dec.py', 'formula/scripts/build_variants.py', 'formula/scripts/mfr.py', 'formula/gt.json', 'formula/crops/**') }}
+      - uses: actions/cache/restore@v4
+        with:
+          path: formula/models_ref
+          key: formula-ref-v2-${{ hashFiles('formula/requirements.txt', 'formula/scripts/fetch_ref.py') }}
+      - uses: actions/download-artifact@v4
+        with: { pattern: acc-*, merge-multiple: true, path: formula/results/acc }
       - uses: actions/download-artifact@v4
         continue-on-error: true
-        with:
-          name: timing
-          path: formula/results/timing
-      - name: Metrics per set, difficulty bucket and edge slice
+        with: { pattern: timing-*, merge-multiple: true, path: formula/results/timing }
+      - uses: actions/download-artifact@v4
+        continue-on-error: true
+        with: { pattern: cdm-*, merge-multiple: true, path: formula/results/cdm }
+      - name: Metrics per set, difficulty bucket and tag; timing; CDM; report
         run: |
-          python scripts/evaluate.py p2t15_fp32,p2t10_int8_mathorium,p2t15_int8_own > results/eval_table.tsv
+          python scripts/evaluate.py p2t15_fp32,p2t15_fp16,p2t15_int16,p2t15_int8,p2t15_int8_split,p2t15_int4_b32,p2t15_int4_b128,p2t15_int4_b128_int8rest,pp_formulanet_plus_s,unirec_0_1b,doctr_formulanet,doctr_formulanet_int8
           python scripts/make_report.py > /dev/null
           cat results/report.md >> "$GITHUB_STEP_SUMMARY"
       - uses: actions/upload-artifact@v4
@@ -187,5 +308,4 @@ jobs:
           path: |
             formula/results/report.md
             formula/results/metrics.json
-            formula/results/eval_table.tsv
           retention-days: 30

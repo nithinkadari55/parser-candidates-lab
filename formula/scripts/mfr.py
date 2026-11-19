@@ -4,11 +4,16 @@ from PIL import Image
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 MD = os.path.join(ROOT, "models")
-MODELS = {
-    "p2t15_fp32": ("breezedeus__pix2text-mfr-1.5/encoder_model.onnx", "breezedeus__pix2text-mfr-1.5/decoder_model.onnx", "breezedeus__pix2text-mfr-1.5/tokenizer.json"),
-    "p2t10_int8_mathorium": ("mathorium__pix2text-mfr-quantized/onnx/encoder_model.onnx", "mathorium__pix2text-mfr-quantized/onnx/decoder_model_int8.onnx", "mathorium__pix2text-mfr-quantized/tokenizer.json"),
-    "p2t15_int8_own": ("own_int8_mfr15/encoder_model.onnx", "own_int8_mfr15/decoder_model.onnx", "own_int8_mfr15/tokenizer.json"),
+VARIANT_DIRS = {
+    "p2t15_fp32": "breezedeus__pix2text-mfr-1.5",
+    "p2t15_int8": "own_int8_mfr15",
+    "p2t15_fp16": "p2t15_fp16",
+    "p2t15_int16": "p2t15_int16",
+    "p2t15_int4_b32": "p2t15_int4_b32",
+    "p2t15_int4_b128": "p2t15_int4_b128",
+    "p2t15_int4_b128_int8rest": "p2t15_int4_b128_int8rest",
 }
+MODELS = {k: (v + "/encoder_model.onnx", v + "/decoder_model.onnx", v + "/tokenizer.json") for k, v in VARIANT_DIRS.items()}
 MAX_NEW = 512
 
 
@@ -23,7 +28,7 @@ class MFR:
         self.enc = ort.InferenceSession(e, so, providers=["CPUExecutionProvider"])
         self.dec = ort.InferenceSession(d, so, providers=["CPUExecutionProvider"])
         self.tok = Tokenizer.from_file(t)
-        self.start = 2 if "p2t10" in name else 1
+        self.start = 1
 
     def __call__(self, img):
         if not isinstance(img, Image.Image):
@@ -53,7 +58,7 @@ class MFRFast(MFR):
         so = ort.SessionOptions()
         so.intra_op_num_threads = threads
         so.inter_op_num_threads = 1
-        d = os.path.join(MD, "split_" + name)
+        d = os.path.join(MD, "split_" + {"p2t15_int8": "p2t15_int8_own"}.get(name, name))
         self.st = ort.InferenceSession(os.path.join(d, "dec_static.onnx"), so, providers=["CPUExecutionProvider"])
         self.dy = ort.InferenceSession(os.path.join(d, "dec_dyn.onnx"), so, providers=["CPUExecutionProvider"])
         self.st_out = [o.name for o in self.st.get_outputs()]

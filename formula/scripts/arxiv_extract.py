@@ -12,7 +12,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 D = os.path.join(ROOT, "data", "arxiv")
 OUT = os.path.join(ROOT, "data", "arxiv_crops")
 WL = set(json.load(open(os.path.join(ROOT, "manifests", "cmd_whitelist.json"))))
-MAX_DISP, MAX_INL = 12, 4
+MAX_DISP, MAX_INL = int(os.environ.get("MAX_DISP", "20")), int(os.environ.get("MAX_INL", "6"))
 ENV_OK = {"aligned", "array", "matrix", "pmatrix", "bmatrix", "vmatrix", "Vmatrix", "Bmatrix", "cases", "split",
           "gathered", "smallmatrix", "subarray"}
 
@@ -316,6 +316,22 @@ def ink_grow(bw, x0, y0, x1, y1, gx, gy, limx=None):
     return x0, y0, x1, y1
 
 
+def priority(f):
+    t = tokenize(f)
+    sc = 0
+    if "\\begin" in t or "\\\\" in t:
+        sc += 3
+    if len(t) > 80:
+        sc += 2
+    if any(x in t for x in ("\\text", "\\mathcal", "\\mathfrak", "\\mathbb", "\\mathscr")):
+        sc += 1
+    if any(x in t for x in ("\\sum", "\\prod", "\\int", "\\lim", "\\bigcup", "\\bigcap", "\\oint")):
+        sc += 1
+    if f.count("\\frac") >= 2:
+        sc += 1
+    return sc
+
+
 def main():
     os.makedirs(OUT, exist_ok=True)
     papers = json.load(open(os.path.join(D, "papers.json")))
@@ -420,6 +436,7 @@ def main():
                 cand.append((kind, f, sig, best))
         stats[aid] = {"disp_src": len(disp), "inl_src": len(inl), "matched": len(cand), "greek": OPT["greek"], "sym": OPT["sym"]}
         rnd.shuffle(cand)
+        cand.sort(key=lambda c: -priority(c[1]) if c[0] == "disp" else 0)
         nd = ni = 0
         rendered = {}
         for kind, f, sig, (score, pi, a, b) in cand:
@@ -465,7 +482,7 @@ def main():
                 continue
             L = min(bx[0] for bx in boxes); R = max(bx[2] for bx in boxes)
             Bt = min(bx[1] for bx in boxes); T = max(bx[3] for bx in boxes)
-            for scale in ([3.0, 1.5] if kind == "disp" else [3.0]):
+            for scale in ([3.0, 1.5, 1.0] if kind == "disp" else [3.0]):
                 key = (pi, scale)
                 if key not in rendered:
                     img = pdf[pi].render(scale=scale).to_pil().convert("L")
@@ -492,15 +509,18 @@ def main():
                     break
                 crop = img.crop((X0, Y0, X1, Y1))
                 if kind == "disp":
-                    lowres = scale == 1.5
-                    if lowres and nd % 3 != 0:
+                    lowres = 0 if scale == 3.0 else scale
+                    if lowres == 1.5 and nd % 3 != 0:
+                        continue
+                    if lowres == 1.0 and nd % 4 != 0:
                         continue
                     if not lowres:
                         nd += 1
                 else:
-                    lowres = False
+                    lowres = 0
                     ni += 1
-                cid = f"{aid}_{kind}{nd if kind == 'disp' else ni:02d}{'_lr' if lowres else ''}"
+                suf = {0: "", 1.5: "_lr", 1.0: "_lr1"}[lowres]
+                cid = f"{aid}_{kind}{nd if kind == 'disp' else ni:02d}{suf}"
                 fn = os.path.join(OUT, cid + ".png")
                 crop.save(fn)
                 items.append({"id": "arxiv/" + cid, "set": "arxiv", "image": os.path.relpath(fn, ROOT).replace("\\", "/"),

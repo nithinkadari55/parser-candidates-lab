@@ -1,0 +1,18 @@
+{
+ "sets_default": "own12,arxiv,unimer",
+ "sets_doctr": "own12,arxiv,unimer,unimer_hwe",
+ "shards": {
+  "p2t15_fp32": 8,
+  "p2t15_fp16": 12,
+  "p2t15_int16": 16,
+  "p2t15_int8": 10,
+  "p2t15_int4_b32": 8,
+  "p2t15_int4_b128": 8,
+  "p2t15_int4_b128_int8rest": 8,
+  "pp_formulanet_plus_s": 8,
+  "unirec_0_1b": 16,
+  "doctr_formulanet": 8,
+  "doctr_formulanet_int8": 8
+ },
+ "cdm_shards": 2
+}

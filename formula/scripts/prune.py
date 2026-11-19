@@ -1,7 +1,7 @@
 import json, os, shutil
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 keep = set()
-for mf in ["own12.json", "unimer.json", "arxiv.json"]:
+for mf in ["own12.json", "unimer.json", "unimer_hwe.json", "arxiv.json"]:
     for it in json.load(open(os.path.join(ROOT, "manifests", mf), encoding="utf-8")):
         keep.add(os.path.normpath(os.path.join(ROOT, it["image"])))
 base = os.path.join(ROOT, "data", "unimer", "x")
