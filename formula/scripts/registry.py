@@ -4,7 +4,8 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 MFR_VARIANTS = ["p2t15_fp32", "p2t15_fp16", "p2t15_int16", "p2t15_int8", "p2t15_int4_b32", "p2t15_int4_b128",
                 "p2t15_int4_b128_int8rest"]
 REF = ["pp_formulanet_plus_s", "unirec_0_1b", "doctr_formulanet", "doctr_formulanet_int8"]
-ALL = MFR_VARIANTS + ["p2t15_int8_split"] + REF
+MONKEY = ["monkey_s_torch", "monkey_s_onnx_int8", "monkey_s_onnx_fp32"]
+ALL = MFR_VARIANTS + ["p2t15_int8_split"] + REF + MONKEY
 
 
 def load(name, threads=4):
@@ -14,7 +15,12 @@ def load(name, threads=4):
     if name in MFR_VARIANTS:
         from mfr import MFR
         return MFR(name, threads)
-    from refmodels import PPFormula, UniRec, DoctrFormula
+    if name == "monkey_s_torch":
+        from monkey_torch import MonkeyTorch
+        return MonkeyTorch(threads)
+    from refmodels import PPFormula, UniRec, DoctrFormula, MonkeyOnnx
+    if name.startswith("monkey_s_onnx_"):
+        return MonkeyOnnx(threads, name.rsplit("_", 1)[1])
     if name == "pp_formulanet_plus_s":
         return PPFormula(threads)
     if name == "unirec_0_1b":

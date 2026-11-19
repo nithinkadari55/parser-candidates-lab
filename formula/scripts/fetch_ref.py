@@ -32,16 +32,18 @@ from onnxruntime.quantization.shape_inference import quant_pre_process
 src = os.path.join(RD, "doctr_formulanet", "model.onnx")
 os.makedirs(os.path.join(RD, "doctr_formulanet_int8"), exist_ok=True)
 dst = os.path.join(RD, "doctr_formulanet_int8", "model.onnx")
-pre = dst + ".pre.onnx"
+quantize_dynamic(src, dst, weight_type=QuantType.QInt8, per_channel=False)
+print("docTR INT8 (raw graph, no pre-processing):", os.path.getsize(dst))
+pre = os.path.join(RD, "pre.onnx")
 try:
     quant_pre_process(src, pre, skip_symbolic_shape=True)
-    print("quant_pre_process ok")
-except Exception as e:
-    print("quant_pre_process failed, quantizing the raw graph:", type(e).__name__, str(e)[:300])
-    pre = src
-quantize_dynamic(pre, dst, weight_type=QuantType.QInt8, per_channel=False)
-if pre != src:
+    alt = os.path.join(RD, "alt_int8.onnx")
+    quantize_dynamic(pre, alt, weight_type=QuantType.QInt8, per_channel=False)
+    print("docTR INT8 after quant_pre_process would be:", os.path.getsize(alt), "bytes (not used)")
+    os.remove(alt)
     os.remove(pre)
+except Exception as e:
+    print("quant_pre_process variant failed:", type(e).__name__, str(e)[:300])
 for d in [os.path.join(RD, ".cache"), os.path.join(RD, "unirec", ".cache"), os.path.join(RD, "doctr_formulanet", ".cache")]:
     shutil.rmtree(d, ignore_errors=True)
 info = {}

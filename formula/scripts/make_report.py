@@ -23,6 +23,12 @@ def size_mb(m):
         files = glob.glob(os.path.join(rd, "PP_FormulaNet_plus_S", "*.onnx"))
     elif m == "unirec_0_1b":
         files = glob.glob(os.path.join(rd, "unirec", "*.onnx"))
+    elif m.startswith("monkey"):
+        info = os.path.join(ROOT, "models_monkey", "monkey_info.json")
+        if os.path.exists(info):
+            i = json.load(open(info))
+            k = {"monkey_s_torch": "model_only_fp32_bytes", "monkey_s_onnx_int8": "onnx_int8_bytes", "monkey_s_onnx_fp32": "onnx_fp32_bytes"}[m]
+            return round(i.get(k, 0) / 1e6, 1)
     elif m.startswith("doctr"):
         files = glob.glob(os.path.join(rd, "doctr_formulanet_int8" if m.endswith("int8") else "doctr_formulanet", "*.onnx"))
     files = [f for f in files if os.path.exists(f)]

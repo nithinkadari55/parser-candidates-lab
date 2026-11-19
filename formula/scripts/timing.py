@@ -10,10 +10,11 @@ load_s = time.perf_counter() - t
 rss_load = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 1024
 for it in items[:3]:
     m(os.path.join(ROOT, it["image"]))
-ts, toks, run = [], [], 0
+ts, toks, run, preds = [], [], 0, []
 for it in items:
     t = time.perf_counter()
-    _, n, r = m(os.path.join(ROOT, it["image"]))
+    pr, n, r = m(os.path.join(ROOT, it["image"]))
+    preds.append(pr)
     ts.append((time.perf_counter() - t) * 1000)
     toks.append(n)
     run += bool(r)
@@ -25,5 +26,5 @@ out = {"model": model, "threads": threads, "n": len(ts), "load_s": round(load_s,
        "ms_per_token_p50": round(statistics.median(a / max(b, 1) for a, b in zip(ts, toks)), 2)}
 print(json.dumps(out), flush=True)
 os.makedirs(os.path.join(ROOT, "results", "timing"), exist_ok=True)
-json.dump({"summary": out, "ms": [round(x, 1) for x in ts], "tokens": toks, "ids": [it["id"] for it in items]},
+json.dump({"summary": out, "ms": [round(x, 1) for x in ts], "tokens": toks, "ids": [it["id"] for it in items], "preds": preds},
           open(os.path.join(ROOT, "results", "timing", model + ".json"), "w"))

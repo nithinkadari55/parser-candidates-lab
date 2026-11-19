@@ -151,6 +151,7 @@ class UniRec:
                      (r"</s>", ""), (r"\uffff", ""), (r"_{4,}", "___"), (r"\.{4,}", "...")]:
             text = re.sub(p, r, text)
         t = text.strip()
+        t = re.sub(r"(\\\])\s*\(\d+\)\s*$", r"\1", t)
         for a, b in ((r"\[", r"\]"), (r"\(", r"\)"), ("$$", "$$")):
             if t.startswith(a) and t.endswith(b) and len(t) >= len(a) + len(b):
                 t = t[len(a):len(t) - len(b)].strip()
@@ -207,3 +208,48 @@ class DoctrFormula:
         ends = np.flatnonzero(idx == self.eos)
         n = int(ends[0]) if ends.size else len(idx)
         return latex, n, ends.size == 0
+
+
+class MonkeyOnnx:
+    """MonkeyOCRv2-S formula model exported to ONNX here (encoder + decoder without KV cache, decoder split so the
+    cross-attention K/V is computed once). Pre/post-processing re-implemented from the official processor."""
+
+    MEAN = np.array((0.48145466, 0.4578275, 0.40821073), np.float32)
+    STD = np.array((0.26862954, 0.26130258, 0.27577711), np.float32)
+    MAX_NEW = 1536
+
+    def __init__(self, threads=4, variant="int8"):
+        from tokenizers import Tokenizer
+        d = os.path.join(ROOT, "models_monkey", "onnx_" + variant)
+        self.enc = _session(os.path.join(d, "encoder_model.onnx"), threads)
+        self.st = _session(os.path.join(d, "split", "dec_static.onnx"), threads)
+        self.dy = _session(os.path.join(d, "split", "dec_dyn.onnx"), threads)
+        self.st_out = [o.name for o in self.st.get_outputs()]
+        self.dy_in = [i.name for i in self.dy.get_inputs()]
+        self.tok = Tokenizer.from_file(os.path.join(ROOT, "models_monkey", "unimernet_tiny", "tokenizer.json"))
+
+    def preprocess(self, path):
+        with Image.open(path) as im:
+            img = PPFormula.crop_margin(im.convert("RGB"))
+        img = img.resize((672, 196), Image.Resampling.BICUBIC)
+        x = (np.asarray(img, dtype=np.float32) / 255.0 - self.MEAN) / self.STD
+        return x.transpose(2, 0, 1)[None].astype(np.float32)
+
+    def __call__(self, path):
+        from ftfy import fix_text
+        h = self.enc.run(None, {"pixel_values": self.preprocess(path)})[0]
+        feeds = dict(zip(self.st_out, self.st.run(None, {"encoder_hidden_states": h})))
+        if "encoder_hidden_states" in self.dy_in:
+            feeds["encoder_hidden_states"] = h
+        ids = [0]
+        runaway = True
+        for step in range(self.MAX_NEW):
+            feeds["input_ids"] = np.array([ids], dtype=np.int64)
+            logits = self.dy.run(None, feeds)[0]
+            nxt = 2 if step == self.MAX_NEW - 1 else int(logits[0, -1].argmax())
+            ids.append(nxt)
+            if nxt == 2:
+                runaway = step == self.MAX_NEW - 1
+                break
+        text = fix_text(self.tok.decode(ids[1:], skip_special_tokens=True))
+        return text, len(ids) - 2, runaway

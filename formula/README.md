@@ -13,10 +13,11 @@ Nothing in this folder contains model weights or benchmark data: the workflow do
 | `p2t15_int8` | onnxruntime `quantize_dynamic` QInt8 (about 31 MB) |
 | `p2t15_int8_split` | the INT8 model with the decoder split so the cross-attention K/V is computed once per image |
 | `p2t15_int4_b32`, `p2t15_int4_b128` | `MatMulNBitsQuantizer` 4-bit weight-only, block 32 / 128 |
-| `p2t15_int4_b128_int8rest` | int4 MatMul plus INT8 for Gather and Conv |
 | `pp_formulanet_plus_s` | reference only: community ONNX of PP-FormulaNet_plus-S (`x3zvawq/paddleocr-js-onnx`), PaddleX pre/post-processing |
 | `unirec_0_1b` | reference only: `topdu/unirec_0_1b_onnx` (Apache-2.0), OpenOCR greedy decoding with KV cache |
 | `doctr_formulanet`, `doctr_formulanet_int8` | docTR FormulaNet via OnnxTR (`Felix92/onnxtr-formulanet`, Apache-2.0) and its `quantize_dynamic` INT8 |
+| `monkey_s_torch` | UniMERNet-T with the MonkeyOCRv2-S encoder, official code (`Yuliang-Liu/MonkeyOCRv2/formula`, Apache-2.0) on CPU PyTorch; weights `zhd36/monkeyocrv2_s_formula` have no stated licence: internal testing only, never cached outside Actions, never committed or uploaded |
+| `monkey_s_onnx_int8` | the same model exported here to ONNX (decoder without KV cache, split) and `quantize_dynamic` INT8 |
 
 ## Test sets
 

@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       mode:
-        description: "probe (prep + small probe of every model) or full (whole benchmark)"
+        description: "probe (prep + short probe of every model) or full (whole benchmark)"
         type: choice
         options: [probe, full]
         default: probe
@@ -21,7 +21,8 @@ permissions:
   contents: read
 
 env:
-  MODE: ${{ inputs.mode || 'probe' }}
+  MONKEY_REPO: /tmp/MonkeyOCRv2/formula
+  MONKEY_SHA: da96afede92f198c19aca74e1e5f5aa7f4c26af2
 
 jobs:
   prep-models:
@@ -31,16 +32,18 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
-        with: { python-version: "3.11", cache: pip, cache-dependency-path: formula/requirements.txt }
+        with: { python-version: "3.11", cache: pip, cache-dependency-path: "formula/requirements*.txt" }
       - run: pip install -r requirements.txt
       - id: c
         uses: actions/cache@v4
         with:
           path: formula/models
-          key: formula-mfr-v2-${{ hashFiles('formula/requirements.txt', 'formula/scripts/fetch_models.py', 'formula/scripts/quant.py', 'formula/scripts/split_dec.py', 'formula/scripts/build_variants.py', 'formula/scripts/mfr.py', 'formula/gt.json', 'formula/crops/**') }}
+          key: formula-mfr-v3-${{ hashFiles('formula/requirements.txt', 'formula/scripts/fetch_models.py', 'formula/scripts/quant.py', 'formula/scripts/split_dec.py', 'formula/scripts/build_variants.py', 'formula/scripts/mfr.py', 'formula/gt.json', 'formula/crops/**') }}
       - name: MFR 1.5 fp32, own INT8, split decoder, fp16, int16, int4 variants
         if: steps.c.outputs.cache-hit != 'true'
-        run: python scripts/fetch_models.py
+        run: |
+          pip install onnx-ir==1.1.0
+          python scripts/fetch_models.py
       - run: cat models/variants_status.json; du -sh models/*
 
   prep-ref:
@@ -50,7 +53,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
-        with: { python-version: "3.11", cache: pip, cache-dependency-path: formula/requirements.txt }
+        with: { python-version: "3.11", cache: pip, cache-dependency-path: "formula/requirements*.txt" }
       - run: pip install -r requirements.txt
       - id: c
         uses: actions/cache@v4
@@ -62,6 +65,26 @@ jobs:
         run: python scripts/fetch_ref.py
       - run: du -sh models_ref/*
 
+  prep-monkey:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    defaults: { run: { working-directory: formula } }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.11", cache: pip, cache-dependency-path: "formula/requirements*.txt" }
+      - run: pip install -r requirements_monkey.txt
+      - run: git clone -q https://github.com/Yuliang-Liu/MonkeyOCRv2.git /tmp/MonkeyOCRv2 && git -C /tmp/MonkeyOCRv2 checkout -q $MONKEY_SHA
+      - id: c
+        uses: actions/cache@v4
+        with:
+          path: formula/models_monkey
+          key: formula-monkey-v1-${{ hashFiles('formula/requirements_monkey.txt', 'formula/scripts/monkey_prep.py', 'formula/scripts/monkey_torch.py', 'formula/scripts/refmodels.py', 'formula/scripts/split_dec.py') }}
+      - name: MonkeyOCRv2-S formula weights (internal test only), strip, ONNX export, INT8, parity
+        if: steps.c.outputs.cache-hit != 'true'
+        run: python scripts/monkey_prep.py
+      - run: cat models_monkey/monkey_info.json; du -sh models_monkey/*
+
   prep-data:
     runs-on: ubuntu-latest
     timeout-minutes: 150
@@ -69,7 +92,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
-        with: { python-version: "3.11", cache: pip, cache-dependency-path: formula/requirements.txt }
+        with: { python-version: "3.11", cache: pip, cache-dependency-path: "formula/requirements*.txt" }
       - run: pip install -r requirements.txt
       - id: c
         uses: actions/cache@v4
@@ -94,24 +117,40 @@ jobs:
 
   probe:
     if: ${{ (inputs.mode || 'probe') == 'probe' }}
-    needs: [prep-models, prep-ref, prep-data]
+    needs: [prep-models, prep-ref, prep-data, prep-monkey]
     runs-on: ubuntu-latest
     timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        env: [main, monkey]
     defaults: { run: { working-directory: formula } }
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
-        with: { python-version: "3.11", cache: pip, cache-dependency-path: formula/requirements.txt }
-      - run: pip install -r requirements.txt
-      - uses: actions/cache/restore@v4
+        with: { python-version: "3.11", cache: pip, cache-dependency-path: "formula/requirements*.txt" }
+      - if: matrix.env == 'main'
+        run: pip install -r requirements.txt
+      - if: matrix.env == 'monkey'
+        run: |
+          pip install -r requirements_monkey.txt
+          git clone -q https://github.com/Yuliang-Liu/MonkeyOCRv2.git /tmp/MonkeyOCRv2 && git -C /tmp/MonkeyOCRv2 checkout -q $MONKEY_SHA
+      - if: matrix.env == 'main'
+        uses: actions/cache/restore@v4
         with:
           path: formula/models
-          key: formula-mfr-v2-${{ hashFiles('formula/requirements.txt', 'formula/scripts/fetch_models.py', 'formula/scripts/quant.py', 'formula/scripts/split_dec.py', 'formula/scripts/build_variants.py', 'formula/scripts/mfr.py', 'formula/gt.json', 'formula/crops/**') }}
+          key: formula-mfr-v3-${{ hashFiles('formula/requirements.txt', 'formula/scripts/fetch_models.py', 'formula/scripts/quant.py', 'formula/scripts/split_dec.py', 'formula/scripts/build_variants.py', 'formula/scripts/mfr.py', 'formula/gt.json', 'formula/crops/**') }}
           fail-on-cache-miss: true
-      - uses: actions/cache/restore@v4
+      - if: matrix.env == 'main'
+        uses: actions/cache/restore@v4
         with:
           path: formula/models_ref
           key: formula-ref-v2-${{ hashFiles('formula/requirements.txt', 'formula/scripts/fetch_ref.py') }}
+          fail-on-cache-miss: true
+      - uses: actions/cache/restore@v4
+        with:
+          path: formula/models_monkey
+          key: formula-monkey-v1-${{ hashFiles('formula/requirements_monkey.txt', 'formula/scripts/monkey_prep.py', 'formula/scripts/monkey_torch.py', 'formula/scripts/refmodels.py', 'formula/scripts/split_dec.py') }}
           fail-on-cache-miss: true
       - uses: actions/cache/restore@v4
         with:
@@ -120,12 +159,14 @@ jobs:
             formula/manifests
           key: formula-data-v2-${{ hashFiles('formula/requirements.txt', 'formula/papers.json', 'formula/gt.json', 'formula/crops/**', 'formula/scripts/fetch_data.py', 'formula/scripts/arxiv_extract.py', 'formula/scripts/mk_unimer.py', 'formula/scripts/mk_wl.py', 'formula/scripts/texnorm.py', 'formula/scripts/taxonomy.py', 'formula/scripts/mk_timing.py', 'formula/scripts/mk_cdm_subset.py', 'formula/scripts/prune.py') }}
           fail-on-cache-miss: true
-      - run: python scripts/counts.py
-      - run: PROBE_N=24 python scripts/probe.py
+      - if: matrix.env == 'main'
+        run: PROBE_N=24 python scripts/probe.py p2t15_fp32,p2t15_fp16,p2t15_int16,p2t15_int8,p2t15_int8_split,p2t15_int4_b32,p2t15_int4_b128,pp_formulanet_plus_s,unirec_0_1b,doctr_formulanet,doctr_formulanet_int8,monkey_s_onnx_fp32,monkey_s_onnx_int8
+      - if: matrix.env == 'monkey'
+        run: PROBE_N=24 python scripts/probe.py monkey_s_torch
 
   plan:
     if: ${{ inputs.mode == 'full' }}
-    needs: [prep-models, prep-ref, prep-data]
+    needs: [prep-models, prep-ref, prep-data, prep-monkey]
     runs-on: ubuntu-latest
     outputs:
       acc: ${{ steps.p.outputs.acc }}
@@ -150,19 +191,30 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
-        with: { python-version: "3.11", cache: pip, cache-dependency-path: formula/requirements.txt }
-      - run: pip install -r requirements.txt
+        with: { python-version: "3.11", cache: pip, cache-dependency-path: "formula/requirements*.txt" }
+      - if: matrix.model != 'monkey_s_torch'
+        run: pip install -r requirements.txt
+      - if: matrix.model == 'monkey_s_torch'
+        run: |
+          pip install -r requirements_monkey.txt
+          git clone -q https://github.com/Yuliang-Liu/MonkeyOCRv2.git /tmp/MonkeyOCRv2 && git -C /tmp/MonkeyOCRv2 checkout -q $MONKEY_SHA
       - if: startsWith(matrix.model, 'p2t15')
         uses: actions/cache/restore@v4
         with:
           path: formula/models
-          key: formula-mfr-v2-${{ hashFiles('formula/requirements.txt', 'formula/scripts/fetch_models.py', 'formula/scripts/quant.py', 'formula/scripts/split_dec.py', 'formula/scripts/build_variants.py', 'formula/scripts/mfr.py', 'formula/gt.json', 'formula/crops/**') }}
+          key: formula-mfr-v3-${{ hashFiles('formula/requirements.txt', 'formula/scripts/fetch_models.py', 'formula/scripts/quant.py', 'formula/scripts/split_dec.py', 'formula/scripts/build_variants.py', 'formula/scripts/mfr.py', 'formula/gt.json', 'formula/crops/**') }}
           fail-on-cache-miss: true
-      - if: ${{ !startsWith(matrix.model, 'p2t15') }}
+      - if: startsWith(matrix.model, 'pp_') || startsWith(matrix.model, 'unirec') || startsWith(matrix.model, 'doctr')
         uses: actions/cache/restore@v4
         with:
           path: formula/models_ref
           key: formula-ref-v2-${{ hashFiles('formula/requirements.txt', 'formula/scripts/fetch_ref.py') }}
+          fail-on-cache-miss: true
+      - if: startsWith(matrix.model, 'monkey')
+        uses: actions/cache/restore@v4
+        with:
+          path: formula/models_monkey
+          key: formula-monkey-v1-${{ hashFiles('formula/requirements_monkey.txt', 'formula/scripts/monkey_prep.py', 'formula/scripts/monkey_torch.py', 'formula/scripts/refmodels.py', 'formula/scripts/split_dec.py') }}
           fail-on-cache-miss: true
       - uses: actions/cache/restore@v4
         with:
@@ -190,19 +242,30 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
-        with: { python-version: "3.11", cache: pip, cache-dependency-path: formula/requirements.txt }
-      - run: pip install -r requirements.txt
+        with: { python-version: "3.11", cache: pip, cache-dependency-path: "formula/requirements*.txt" }
+      - if: matrix.model != 'monkey_s_torch'
+        run: pip install -r requirements.txt
+      - if: matrix.model == 'monkey_s_torch'
+        run: |
+          pip install -r requirements_monkey.txt
+          git clone -q https://github.com/Yuliang-Liu/MonkeyOCRv2.git /tmp/MonkeyOCRv2 && git -C /tmp/MonkeyOCRv2 checkout -q $MONKEY_SHA
       - if: startsWith(matrix.model, 'p2t15')
         uses: actions/cache/restore@v4
         with:
           path: formula/models
-          key: formula-mfr-v2-${{ hashFiles('formula/requirements.txt', 'formula/scripts/fetch_models.py', 'formula/scripts/quant.py', 'formula/scripts/split_dec.py', 'formula/scripts/build_variants.py', 'formula/scripts/mfr.py', 'formula/gt.json', 'formula/crops/**') }}
+          key: formula-mfr-v3-${{ hashFiles('formula/requirements.txt', 'formula/scripts/fetch_models.py', 'formula/scripts/quant.py', 'formula/scripts/split_dec.py', 'formula/scripts/build_variants.py', 'formula/scripts/mfr.py', 'formula/gt.json', 'formula/crops/**') }}
           fail-on-cache-miss: true
-      - if: ${{ !startsWith(matrix.model, 'p2t15') }}
+      - if: startsWith(matrix.model, 'pp_') || startsWith(matrix.model, 'unirec') || startsWith(matrix.model, 'doctr')
         uses: actions/cache/restore@v4
         with:
           path: formula/models_ref
           key: formula-ref-v2-${{ hashFiles('formula/requirements.txt', 'formula/scripts/fetch_ref.py') }}
+          fail-on-cache-miss: true
+      - if: startsWith(matrix.model, 'monkey')
+        uses: actions/cache/restore@v4
+        with:
+          path: formula/models_monkey
+          key: formula-monkey-v1-${{ hashFiles('formula/requirements_monkey.txt', 'formula/scripts/monkey_prep.py', 'formula/scripts/monkey_torch.py', 'formula/scripts/refmodels.py', 'formula/scripts/split_dec.py') }}
           fail-on-cache-miss: true
       - uses: actions/cache/restore@v4
         with:
@@ -211,11 +274,11 @@ jobs:
             formula/manifests
           key: formula-data-v2-${{ hashFiles('formula/requirements.txt', 'formula/papers.json', 'formula/gt.json', 'formula/crops/**', 'formula/scripts/fetch_data.py', 'formula/scripts/arxiv_extract.py', 'formula/scripts/mk_unimer.py', 'formula/scripts/mk_wl.py', 'formula/scripts/texnorm.py', 'formula/scripts/taxonomy.py', 'formula/scripts/mk_timing.py', 'formula/scripts/mk_cdm_subset.py', 'formula/scripts/prune.py') }}
           fail-on-cache-miss: true
-      - name: Timing on the 330-formula set, one model, 4 threads, nothing else in this job
+      - name: Timing on the fixed 330-formula set, one model, 4 threads, nothing else in this job
         run: |
           nproc; free -m; lscpu | grep -E "Model name|^CPU\(s\)"
           python scripts/timing.py ${{ matrix.model }} 4
-          mkdir -p results/timing && lscpu | grep "Model name" > results/timing/${{ matrix.model }}.cpu.txt
+          lscpu | grep "Model name" > results/timing/${{ matrix.model }}.cpu.txt
       - uses: actions/upload-artifact@v4
         with:
           name: timing-${{ matrix.model }}
@@ -272,7 +335,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
-        with: { python-version: "3.11", cache: pip, cache-dependency-path: formula/requirements.txt }
+        with: { python-version: "3.11", cache: pip, cache-dependency-path: "formula/requirements*.txt" }
       - run: pip install -r requirements.txt
       - uses: actions/cache/restore@v4
         with:
@@ -284,11 +347,15 @@ jobs:
       - uses: actions/cache/restore@v4
         with:
           path: formula/models
-          key: formula-mfr-v2-${{ hashFiles('formula/requirements.txt', 'formula/scripts/fetch_models.py', 'formula/scripts/quant.py', 'formula/scripts/split_dec.py', 'formula/scripts/build_variants.py', 'formula/scripts/mfr.py', 'formula/gt.json', 'formula/crops/**') }}
+          key: formula-mfr-v3-${{ hashFiles('formula/requirements.txt', 'formula/scripts/fetch_models.py', 'formula/scripts/quant.py', 'formula/scripts/split_dec.py', 'formula/scripts/build_variants.py', 'formula/scripts/mfr.py', 'formula/gt.json', 'formula/crops/**') }}
       - uses: actions/cache/restore@v4
         with:
           path: formula/models_ref
           key: formula-ref-v2-${{ hashFiles('formula/requirements.txt', 'formula/scripts/fetch_ref.py') }}
+      - uses: actions/cache/restore@v4
+        with:
+          path: formula/models_monkey
+          key: formula-monkey-v1-${{ hashFiles('formula/requirements_monkey.txt', 'formula/scripts/monkey_prep.py', 'formula/scripts/monkey_torch.py', 'formula/scripts/refmodels.py', 'formula/scripts/split_dec.py') }}
       - uses: actions/download-artifact@v4
         with: { pattern: acc-*, merge-multiple: true, path: formula/results/acc }
       - uses: actions/download-artifact@v4
@@ -299,7 +366,7 @@ jobs:
         with: { pattern: cdm-*, merge-multiple: true, path: formula/results/cdm }
       - name: Metrics per set, difficulty bucket and tag; timing; CDM; report
         run: |
-          python scripts/evaluate.py p2t15_fp32,p2t15_fp16,p2t15_int16,p2t15_int8,p2t15_int8_split,p2t15_int4_b32,p2t15_int4_b128,p2t15_int4_b128_int8rest,pp_formulanet_plus_s,unirec_0_1b,doctr_formulanet,doctr_formulanet_int8
+          python scripts/evaluate.py p2t15_fp32,p2t15_fp16,p2t15_int16,p2t15_int8,p2t15_int8_split,p2t15_int4_b32,p2t15_int4_b128,pp_formulanet_plus_s,unirec_0_1b,doctr_formulanet,doctr_formulanet_int8,monkey_s_torch,monkey_s_onnx_int8
           python scripts/make_report.py > /dev/null
           cat results/report.md >> "$GITHUB_STEP_SUMMARY"
       - uses: actions/upload-artifact@v4
