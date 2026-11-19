@@ -50,8 +50,8 @@ def bench_tf(threads):
     ids = sample_ids()
     singles = []
     for k, (s, i) in enumerate(ids):
-        p = os.path.join(tmp, f"one_{k}.pdf"); make_multi(s, [i], p); singles.append(p)
-    w = os.path.join(tmp, "warm.pdf"); make_multi(ids[0][0], [ids[0][1]], w)
+        p = os.path.join(tmp, f"one_{k}.pdf"); make_multi(s, [i], p, "letter"); singles.append(p)
+    w = os.path.join(tmp, "warm.pdf"); make_multi(ids[0][0], [ids[0][1]], w, "letter")
     conv.convert(w); load = time.perf_counter() - t
     ts = []
     for p in singles:
@@ -62,7 +62,7 @@ def bench_tf(threads):
     for s, i in ids: by.setdefault(s, []).append(i)
     for s, lst in by.items():
         for k in range(0, len(lst), 20):
-            p = os.path.join(tmp, f"multi_{s}_{k}.pdf"); ch = lst[k:k + 20]; make_multi(s, ch, p)
+            p = os.path.join(tmp, f"multi_{s}_{k}.pdf"); ch = lst[k:k + 20]; make_multi(s, ch, p, "letter")
             t = time.perf_counter(); conv.convert(p); multi.append((time.perf_counter() - t) * 1000 / len(ch))
     return dict(model="tableformer (docling-rs 2.84.0 full PDF pipeline: layout + TableFormer, no OCR)", threads=threads, n=len(ts),
                 load_plus_first_convert_s=round(load, 2), single_table_pdf_median_ms=round(statistics.median(ts), 1), single_table_pdf_p95_ms=round(pct(ts, 0.95), 1),

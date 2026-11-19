@@ -2,6 +2,19 @@ name: tables
 
 on:
   workflow_dispatch:
+    inputs:
+      models:
+        description: "models to run (comma list)"
+        default: "tatr,slanet1m,tableformer"
+      tf_page:
+        description: "TableFormer page for dataset tables: letter or tight"
+        default: "letter"
+      timing:
+        description: "run the timing job"
+        default: "true"
+      reuse_run:
+        description: "earlier run id to take artifacts of models not run here (and speed if timing is off)"
+        default: ""
   push:
     paths:
       - "tables/**"
@@ -16,11 +29,24 @@ jobs:
   prep:
     runs-on: ubuntu-latest
     timeout-minutes: 90
+    outputs:
+      matrix: ${{ steps.mx.outputs.matrix }}
     defaults:
       run:
         shell: bash
     steps:
       - uses: actions/checkout@v4
+      - name: Matrix
+        id: mx
+        env:
+          MODELS: ${{ inputs.models || 'tatr,slanet1m,tableformer' }}
+        run: |
+          python3 - <<'EOF' >> "$GITHUB_OUTPUT"
+          import json, os
+          n = {"tatr": 4, "slanet1m": 2, "tableformer": 8}
+          inc = [dict(model=m, shard=i, nshards=n[m]) for m in os.environ["MODELS"].split(",") if m in n for i in range(n[m])]
+          print("matrix=" + json.dumps({"include": inc}))
+          EOF
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
@@ -89,22 +115,7 @@ jobs:
     timeout-minutes: 150
     strategy:
       fail-fast: false
-      matrix:
-        include:
-          - { model: tatr, shard: 0, nshards: 4 }
-          - { model: tatr, shard: 1, nshards: 4 }
-          - { model: tatr, shard: 2, nshards: 4 }
-          - { model: tatr, shard: 3, nshards: 4 }
-          - { model: slanet1m, shard: 0, nshards: 2 }
-          - { model: slanet1m, shard: 1, nshards: 2 }
-          - { model: tableformer, shard: 0, nshards: 8 }
-          - { model: tableformer, shard: 1, nshards: 8 }
-          - { model: tableformer, shard: 2, nshards: 8 }
-          - { model: tableformer, shard: 3, nshards: 8 }
-          - { model: tableformer, shard: 4, nshards: 8 }
-          - { model: tableformer, shard: 5, nshards: 8 }
-          - { model: tableformer, shard: 6, nshards: 8 }
-          - { model: tableformer, shard: 7, nshards: 8 }
+      matrix: ${{ fromJSON(needs.prep.outputs.matrix) }}
     defaults:
       run:
         shell: bash
@@ -148,7 +159,7 @@ jobs:
         run: |
           nproc; free -g
           if [ "${{ matrix.model }}" = "tableformer" ]; then
-            python run_tableformer.py --shard ${{ matrix.shard }} --nshards ${{ matrix.nshards }}
+            python run_tableformer.py --shard ${{ matrix.shard }} --nshards ${{ matrix.nshards }} --page ${{ inputs.tf_page || 'letter' }}
           else
             python bench_models.py ${{ matrix.model }} --shard ${{ matrix.shard }} --nshards ${{ matrix.nshards }}
           fi
@@ -169,6 +180,7 @@ jobs:
 
   timing:
     needs: prep
+    if: ${{ github.event_name != 'workflow_dispatch' || inputs.timing == 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 120
     defaults:
@@ -214,6 +226,9 @@ jobs:
     needs: [run, timing]
     if: always()
     runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: read
     defaults:
       run:
         shell: bash
@@ -225,6 +240,19 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           path: results
+      - name: Artifacts from an earlier run
+        if: ${{ inputs.reuse_run != '' && inputs.reuse_run != null }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          MODELS: ${{ inputs.models }}
+          TIMING: ${{ inputs.timing }}
+        run: |
+          mkdir -p results/prev
+          for m in tatr slanet1m tableformer; do
+            case ",$MODELS," in *",$m,"*) ;; *) gh run download ${{ inputs.reuse_run }} -R ${{ github.repository }} -p "pred-$m-*" -D results/prev ;; esac
+          done
+          if [ "$TIMING" != "true" ]; then gh run download ${{ inputs.reuse_run }} -R ${{ github.repository }} -n speed -D results/speed; fi
+          ls -R results | head -50
       - name: Aggregate
         run: |
           python tables/src/agg.py results > /dev/null

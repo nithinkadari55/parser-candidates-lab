@@ -2,7 +2,7 @@ import os, sys, json, time, argparse
 import paths
 from paths import SETS, RAW, OUT
 from bench_models import shard_ids, set_ids, load_gt
-from make_pdfs import make_multi, PAD
+from make_pdfs import make_multi
 
 
 def tl(b, ph):
@@ -31,12 +31,12 @@ def page_heights(dd):
     return {int(k): v["size"]["height"] for k, v in dd["pages"].items()}
 
 
-def run_images(conv, s, ids, of, chunk=20):
+def run_images(conv, s, ids, of, page, chunk=20):
     tmpd = os.path.join(OUT, "tfpdf"); os.makedirs(tmpd, exist_ok=True)
     with open(of, "w", encoding="utf-8") as f:
         for k in range(0, len(ids), chunk):
             ch = ids[k:k + chunk]
-            pdf = os.path.join(tmpd, f"{s}_{k}.pdf"); make_multi(s, ch, pdf)
+            pdf = os.path.join(tmpd, f"{s}_{k}.pdf"); offs = make_multi(s, ch, pdf, page)
             t = time.perf_counter(); r = conv.convert(pdf); dt = (time.perf_counter() - t) * 1000
             dd = r.document.export_to_dict(); ph = page_heights(dd)
             bypage = {}
@@ -46,8 +46,9 @@ def run_images(conv, s, ids, of, chunk=20):
                 bypage.setdefault(p["page_no"], []).append((abs((b["r"] - b["l"]) * (b["t"] - b["b"])), t_))
             for pi, tid in enumerate(ch, start=1):
                 lst = sorted(bypage.get(pi, []), key=lambda x: -x[0])
-                rec = dict(id=tid, ms_total=dt / len(ch), n_tables_on_page=len(lst))
-                rec["cells"] = cells_of(lst[0][1], ph[pi], PAD, PAD, 1.0) if lst else []
+                rec = dict(id=tid, ms_total=dt / len(ch), n_tables_on_page=len(lst), page=page)
+                ox, oy = offs[pi - 1]
+                rec["cells"] = cells_of(lst[0][1], ph[pi], ox, oy, 1.0) if lst else []
                 if not lst: rec["err"] = "no table detected"
                 f.write(json.dumps(rec) + "\n")
             f.flush(); os.remove(pdf)
@@ -88,7 +89,7 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--sets", default="ptn,ftn,pt1m,icdar")
     ap.add_argument("--shard", type=int, default=0); ap.add_argument("--nshards", type=int, default=1)
-    ap.add_argument("--threads", type=int, default=0)
+    ap.add_argument("--threads", type=int, default=0); ap.add_argument("--page", default="letter", choices=["letter", "tight"])
     a = ap.parse_args()
     import docling_rs as d
     from docling_rs.options import PdfFormatOption, PdfPipelineOptions, InputFormat
@@ -99,7 +100,7 @@ def main():
     for s in a.sets.split(","):
         of = os.path.join(OUT, "pred", f"tableformer_{s}_s{a.shard}.jsonl")
         if s == "icdar": run_icdar(conv, a.shard, a.nshards, of)
-        else: run_images(conv, s, shard_ids(s, a.shard, a.nshards), of)
+        else: run_images(conv, s, shard_ids(s, a.shard, a.nshards), of, a.page)
         print("done tableformer", s, a.shard, flush=True)
 
 

@@ -13,13 +13,18 @@ def clean(s):
     return s.encode("latin-1", "replace").decode("latin-1")
 
 
-def make_multi(setname, ids, out):
+def make_multi(setname, ids, out, page="tight"):
     d = os.path.join(SETS, setname)
     c = canvas.Canvas(out)
+    offsets = []
     for tid in ids:
         gt = json.load(open(os.path.join(d, tid + ".json"), encoding="utf-8"))
         im = Image.open(os.path.join(d, tid + ".png")); W, H = im.size
-        PW, PH = W + 2 * PAD, H + 2 * PAD
+        if page == "letter":
+            PW, PH = max(W + 2 * PAD, 612), max(H + 2 * 40, 792); ox, oy = (PW - W) / 2.0, 40.0
+        else:
+            PW, PH = W + 2 * PAD, H + 2 * PAD; ox, oy = float(PAD), float(PAD)
+        offsets.append((ox, oy))
         c.setPageSize((PW, PH))
         hs = sorted(cl["bbox"][3] - cl["bbox"][1] for cl in gt["cells"] if cl["text"].strip())
         lh = max(4.0, hs[len(hs) // 2] if hs else 10.0)
@@ -37,7 +42,8 @@ def make_multi(setname, ids, out):
             for k, ln in enumerate(lines):
                 sw = stringWidth(ln, "Helvetica", fs) or 1.0
                 to = c.beginText(); to.setFont("Helvetica", fs); to.setHorizScale(100.0 * w / sw)
-                to.setTextOrigin(PAD + x0, PH - (PAD + y0 + (k + 1) * lhh) + 0.2 * lhh); to.textLine(ln); c.drawText(to)
-        c.drawImage(os.path.join(d, tid + ".png"), PAD, PAD, width=W, height=H)
+                to.setTextOrigin(ox + x0, PH - (oy + y0 + (k + 1) * lhh) + 0.2 * lhh); to.textLine(ln); c.drawText(to)
+        c.drawImage(os.path.join(d, tid + ".png"), ox, PH - oy - H, width=W, height=H)
         c.showPage()
     c.save()
+    return offsets
