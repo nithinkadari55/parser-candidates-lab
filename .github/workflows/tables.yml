@@ -31,6 +31,7 @@ jobs:
     timeout-minutes: 90
     outputs:
       matrix: ${{ steps.mx.outputs.matrix }}
+      has_jobs: ${{ steps.mx.outputs.has_jobs }}
     defaults:
       run:
         shell: bash
@@ -46,6 +47,7 @@ jobs:
           n = {"tatr": 4, "slanet1m": 2, "tableformer": 8, "tatr-trim": 4, "slanet1m-trim": 2}
           inc = [dict(model=m, shard=i, nshards=n[m]) for m in os.environ["MODELS"].split(",") if m in n for i in range(n[m])]
           print("matrix=" + json.dumps({"include": inc}))
+          print("has_jobs=" + ("true" if inc else "false"))
           EOF
       - uses: actions/setup-python@v5
         with:
@@ -111,7 +113,7 @@ jobs:
 
   run:
     needs: prep
-    if: ${{ needs.prep.outputs.matrix != '{"include": []}' }}
+    if: ${{ needs.prep.outputs.has_jobs == 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 150
     strategy:
