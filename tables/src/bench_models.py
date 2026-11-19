@@ -178,8 +178,10 @@ class POTATR:
     def __call__(self, im, toks):
         W0, H0 = im.size
         if self.PAGE == "page":
-            PW = max(W0 + 80, int(W0 / 0.75)); PH = max(H0 + 80, int(PW * 1.294))
-            ox, oy = (PW - W0) // 2, 40
+            hs = sorted(t["bbox"][3] - t["bbox"][1] for t in toks if t["bbox"][3] > t["bbox"][1])
+            ppt = max(0.6, min(4.0, (hs[len(hs) // 4] if hs else 11.0) / 11.0))
+            PW = int(max(W0 + 80, 612 * ppt)); PH = int(max(H0 + 80, 792 * ppt))
+            ox, oy = (PW - W0) // 2, int(54 * ppt)
             page = Image.new("RGB", (PW, PH), (255, 255, 255)); page.paste(im, (ox, oy))
         else:
             page, ox, oy = im, 0, 0

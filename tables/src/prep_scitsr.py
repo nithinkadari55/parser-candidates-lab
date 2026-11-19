@@ -1,6 +1,6 @@
 import os, io, json, re, random
 import pyarrow.parquet as pq
-import pypdfium2 as pdfium
+import pypdfium2 as pdfium, pdfplumber
 from PIL import Image
 from paths import RAW, SETS as SETDIR
 from prep_sets import tag, write_set
@@ -48,13 +48,20 @@ def main():
     chosen = []; recs = {}
     for r in rows:
         try:
-            im = Image.open(io.BytesIO(r["image"]["bytes"])).convert("RGB")
-            pdf = pdfium.PdfDocument(r["pdf"]); l, b, rr, t = pdf[0].get_cropbox()
-            W, H = rr - l, t - b
-            sx, sy = im.size[0] / W, im.size[1] / H
-            words = [dict(text=c["text"], bbox=[(c["x1"] - l) * sx, (t - c["y2"]) * sy, (c["x2"] - l) * sx, (t - c["y1"]) * sy], gi=None) for c in r["chunks"]]
-            inside = sum(1 for w_ in words if 0 <= w_["bbox"][0] <= im.size[0] and 0 <= w_["bbox"][1] <= im.size[1])
-            if not inside: print("words outside image", r["table_id"], r["chunks"][:1], (l, b, rr, t), im.size)
+            pdf = pdfium.PdfDocument(r["pdf"]); pg = pdf[0]
+            S = 150 / 72.0
+            im = pg.render(scale=S).to_pil().convert("RGB")
+            cl, cb, cr, ct = pg.get_cropbox(); ml, mb, mr, mt = pg.get_mediabox()
+            with pdfplumber.open(io.BytesIO(r["pdf"])) as pp:
+                p0 = pp.pages[0]; ws = p0.extract_words(keep_blank_chars=False, use_text_flow=False)
+                bx0, btop = float(p0.bbox[0]), float(p0.bbox[1])
+            best = None
+            for ox, oy in ((0.0, 0.0), (cl - ml - bx0, (mt - ct) - btop), (-bx0, -btop)):
+                cand = [dict(text=w["text"], bbox=[(w["x0"] - ox) * S, (w["top"] - oy) * S, (w["x1"] - ox) * S, (w["bottom"] - oy) * S], gi=None) for w in ws]
+                inside = sum(1 for w_ in cand if 0 <= (w_["bbox"][0] + w_["bbox"][2]) / 2 <= im.size[0] and 0 <= (w_["bbox"][1] + w_["bbox"][3]) / 2 <= im.size[1])
+                if best is None or inside > best[0]: best = (inside, cand, (ox, oy))
+            words = best[1]; sx = sy = S
+            if best[0] < len(ws): print("words partly outside", r["table_id"], best[0], len(ws), best[2], (cl, cb, cr, ct), (ml, mb, mr, mt), p0.bbox if False else "", im.size)
             toks, cells = build(r["cells"])
             T = tag(dict(html=toks, cells=[[dict(tokens=list(c["text"]), bbox=c["bbox"]) for c in cells]]), im)
         except Exception as e:

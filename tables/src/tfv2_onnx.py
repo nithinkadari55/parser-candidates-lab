@@ -21,9 +21,10 @@ def export():
     class Dec(torch.nn.Module):
         def __init__(s, m): super().__init__(); s.m = m
         def forward(s, input_ids, memory):
-            L = input_ids.shape[1]
-            tgt = s.m.input_embedding(input_ids) + s.m.positional_encoding[:, :L, :]
-            mask = torch.triu(torch.full((L, L), float("-inf")), diagonal=1)
+            a = torch.cumsum(torch.ones_like(input_ids[0], dtype=torch.float32), 0)
+            pos = s.m.positional_encoding[0].index_select(0, (a - 1).long()).unsqueeze(0)
+            tgt = s.m.input_embedding(input_ids) + pos
+            mask = torch.where(a[None, :] > a[:, None], torch.tensor(float("-inf")), torch.tensor(0.0))
             dec, _ = s.m.transformer_decoder(tgt=tgt, memory=memory, tgt_mask=mask, tgt_key_padding_mask=None, past_key_values=None, use_cache=False)
             return s.m.output_projection(dec), dec
 
