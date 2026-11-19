@@ -9,14 +9,14 @@ on:
       source_run:
         description: "reuse layout/dlrs/timing artifacts of this run ID (skips those heavy jobs)"
         default: ""
-
-permissions:
-  contents: read
-  actions: read
   push:
     paths:
       - "order/**"
       - ".github/workflows/order.yml"
+
+permissions:
+  contents: read
+  actions: read
 
 concurrency:
   group: order-${{ github.ref }}
