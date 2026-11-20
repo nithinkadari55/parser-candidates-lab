@@ -72,8 +72,8 @@ fn region(doc: &mut Doc, r: &Region, pad: f64) -> Outcome {
         let near = to_top_left(&r.bbox, &r.mediabox, pad + 6.0);
         let mut buf = [0u8; 4];
         for g in &page.glyphs {
-            if near.selects(g.bbox.x0, g.bbox.y0, g.bbox.x1, g.bbox.y1, g.origin.x, g.origin.y) {
-                let inside = rect.selects(g.bbox.x0, g.bbox.y0, g.bbox.x1, g.bbox.y1, g.origin.x, g.origin.y);
+            if near.selects(g.bbox.x0, g.bbox.y0, g.bbox.x1, g.bbox.y1, g.origin.y) {
+                let inside = rect.selects(g.bbox.x0, g.bbox.y0, g.bbox.x1, g.bbox.y1, g.origin.y);
                 eprintln!(
                     "R3_DEBUG rustypaper {} {} {:?} bbox=[{:.2},{:.2},{:.2},{:.2}] origin_y={:.2} size={:.2} font={}",
                     r.id,
@@ -96,7 +96,7 @@ fn region(doc: &mut Doc, r: &Region, pad: f64) -> Outcome {
     let glyphs: Vec<_> = page
         .glyphs
         .iter()
-        .filter(|g| rect.selects(g.bbox.x0, g.bbox.y0, g.bbox.x1, g.bbox.y1, g.origin.x, g.origin.y))
+        .filter(|g| rect.selects(g.bbox.x0, g.bbox.y0, g.bbox.x1, g.bbox.y1, g.origin.y))
         .copied()
         .collect();
     let paths: Vec<_> = page

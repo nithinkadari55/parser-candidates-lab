@@ -82,8 +82,8 @@ fn region(doc: &mut Doc, r: &Region, pad: f64, layout: &LayoutConfig) -> Outcome
     if std::env::var_os("R3_DEBUG").is_some() {
         let n = to_top_left(&r.bbox, &r.mediabox, pad + 6.0);
         for g in page.lines.iter().flat_map(|line| line.glyphs.iter()) {
-            if n.selects(g.ink.x0, g.ink.y0, g.ink.x1, g.ink.y1, g.ink.cx(), g.y) {
-                let inside = d.selects(g.ink.x0, g.ink.y0, g.ink.x1, g.ink.y1, g.ink.cx(), g.y);
+            if n.selects(g.ink.x0, g.ink.y0, g.ink.x1, g.ink.y1, g.y) {
+                let inside = d.selects(g.ink.x0, g.ink.y0, g.ink.x1, g.ink.y1, g.y);
                 let font = fonts.get(g.font as usize).map(|f| f.name.as_str()).unwrap_or("?");
                 eprintln!(
                     "R3_DEBUG kakemono {} {} {:?} ink=[{:.2},{:.2},{:.2},{:.2}] y={:.2} size={:.2} font={}",
@@ -104,7 +104,7 @@ fn region(doc: &mut Doc, r: &Region, pad: f64, layout: &LayoutConfig) -> Outcome
         .lines
         .iter()
         .flat_map(|line| line.glyphs.iter())
-        .filter(|g| d.selects(g.ink.x0, g.ink.y0, g.ink.x1, g.ink.y1, g.ink.cx(), g.y))
+        .filter(|g| d.selects(g.ink.x0, g.ink.y0, g.ink.x1, g.ink.y1, g.y))
         .cloned()
         .collect();
     let elapsed = |s: &Instant| Some(s.elapsed().as_secs_f64() * 1000.0);
