@@ -1,0 +1,88 @@
+name: formula-r3-rust
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [formula-r3-rust]
+    paths:
+      - "formula/r3/rust/**"
+      - "formula/r3/go/**"
+      - ".github/workflows/formula-r3-rust.yml"
+
+concurrency:
+  group: formula-r3-rust-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - run: |
+          echo "PDF_DIR=$RUNNER_TEMP/pdfs" >> "$GITHUB_ENV"
+          echo "WORK=$RUNNER_TEMP/work" >> "$GITHUB_ENV"
+          mkdir -p "$RUNNER_TEMP/pdfs" "$RUNNER_TEMP/work"
+      - name: Rust toolchain
+        run: |
+          rustup toolchain install stable --profile minimal
+          rustup default stable
+          rustc --version
+          cargo --version
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: formula/r3/rust -> target
+      - name: Build Rust binaries
+        working-directory: formula/r3/rust
+        run: |
+          if [ -f Cargo.lock ]; then LOCKED=--locked; else LOCKED=; fi
+          cargo build --release $LOCKED
+          cargo tree -e normal --depth 1 -p rustypaper-region -p kakemono-region
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: formula/r3/go/go.mod
+          cache: false
+      - name: Build Go binary
+        run: |
+          go version
+          bash formula/r3/go/build.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: formula-r3-rust-lockfiles
+          path: |
+            formula/r3/rust/Cargo.lock
+            formula/r3/go/go.mod
+            formula/r3/go/go.sum
+          retention-days: 7
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.11" }
+      - run: pip install -r formula/r3/rust/ci/requirements.txt
+      - name: Download arXiv PDFs
+        run: |
+          for id in 2611.23210v1 2611.23027v1 1706.03762v7; do
+            curl -fsSL -A "Mozilla/5.0 (X11; Linux x86_64) parser-candidates-lab-ci" -o "$PDF_DIR/$id.pdf" "https://arxiv.org/pdf/$id"
+            sleep 3
+          done
+          ls -la "$PDF_DIR"
+      - name: Make regions (pypdfium2 char boxes, math-font rows)
+        run: |
+          python formula/r3/rust/ci/make_regions.py --pdf "$PDF_DIR"/*.pdf --out "$WORK/regions.jsonl" --dump-pages 1
+          cat "$WORK/regions.jsonl"
+      - name: Run harnesses
+        run: |
+          time formula/r3/rust/target/release/rustypaper-region --input "$WORK/regions.jsonl" --output "$WORK/rustypaper.jsonl"
+          time formula/r3/rust/target/release/kakemono-region --input "$WORK/regions.jsonl" --output "$WORK/kakemono.jsonl"
+          time formula/r3/go/bin/gopdfkit-region --input "$WORK/regions.jsonl" --output "$WORK/gopdfkit.jsonl"
+      - name: Show outputs
+        run: |
+          python formula/r3/rust/ci/show.py --regions "$WORK/regions.jsonl" \
+            --out rustypaper="$WORK/rustypaper.jsonl" kakemono="$WORK/kakemono.jsonl" gopdfkit="$WORK/gopdfkit.jsonl"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: formula-r3-rust-outputs
+          path: ${{ runner.temp }}/work/*.jsonl
+          retention-days: 7

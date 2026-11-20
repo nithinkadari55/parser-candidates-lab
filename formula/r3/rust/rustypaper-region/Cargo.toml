@@ -1,0 +1,9 @@
+[package]
+name = "rustypaper-region"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+
+[dependencies]
+rustypaper = "=0.2.4"
+r3io = { path = "../r3io" }

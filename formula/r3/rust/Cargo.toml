@@ -1,0 +1,16 @@
+[workspace]
+resolver = "2"
+members = ["r3io", "rustypaper-region", "kakemono-region"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[workspace.dependencies]
+serde = { version = "=1.0.229", features = ["derive"] }
+serde_json = "=1.0.154"
+
+[profile.release]
+opt-level = 3
+debug = false
