@@ -21,6 +21,9 @@ on:
       round3:
         description: "round-3 tests instead of the benchmark: comma list of select,detect,rotate (empty = benchmark)"
         default: ""
+      r3_kinds:
+        description: "rotation test: only items whose kind starts with one of these (comma list; empty = all)"
+        default: ""
   push:
     paths:
       - "tables/**"
@@ -448,6 +451,8 @@ jobs:
           fail-on-cache-miss: true
       - name: Rotate, correct and recognise
         working-directory: tables/src
+        env:
+          R3_KINDS: ${{ inputs.r3_kinds }}
         run: |
           python fetch_models.py tatr16 orient tableformer grits
           python r3_rotate.py ${{ matrix.shard }} 8
@@ -462,6 +467,9 @@ jobs:
     if: ${{ always() && contains(inputs.round3, 'rotate') }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    permissions:
+      actions: read
+      contents: read
     defaults:
       run:
         shell: bash
@@ -475,7 +483,14 @@ jobs:
         with:
           pattern: r3rot-*
           path: res
-      - run: python tables/src/r3_rot_eval.py res | tail -n 120
+      - name: Rotation results of earlier runs
+        if: ${{ inputs.reuse_runs != '' && inputs.reuse_runs != null }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REUSE: ${{ inputs.reuse_runs }}
+        run: |
+          for e in $REUSE; do id=${e%%:*}; pat=${e#*:}; gh run download "$id" -R ${{ github.repository }} -p "$pat" -D "res/prev-$id"; done
+      - run: python tables/src/r3_rot_eval.py res | tail -n 140
       - uses: actions/upload-artifact@v4
         with:
           name: r3-rotate

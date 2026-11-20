@@ -21,6 +21,7 @@ def main():
         g = r["kind"] if r["kind"] in ("rot", "icdar_real") else f"{r['kind']}/{r['mode']}"
         groups.setdefault(g, []).append(r)
     groups["all born-digital"] = [r for r in recs if r["kind"].endswith("_bd")]
+    groups["all upright controls"] = [r for r in recs if r["kind"].startswith("upright_")]
     out = []; P = out.append
     P("## Test 5: rotated tables")
     P(f"Items: {len(recs)}")

@@ -126,22 +126,33 @@ def items():
     for tid in json.load(open(os.path.join(SETS, "scitsr", "index.json"))):
         th = rng.choice([90, 180, 270])
         out += [("scitsr_bd", tid, th, "attr"), ("scitsr_bd", tid, th, "content")]
+    for s in ("ptn", "ftn"):
+        ids = json.load(open(os.path.join(SETS, s, "index.json"))); random.Random(23).shuffle(ids)
+        out += [("upright_" + s, tid, 0, "img") for tid in ids[:150]]
+    for tid in json.load(open(os.path.join(SETS, "icdar", "index.json"))):
+        g = json.load(open(os.path.join(SETS, "icdar", tid + ".json"), encoding="utf-8"))
+        if not g["tags"].get("rotated_page"): out.append(("upright_icdar", tid, 0, "orig"))
+    for tid in json.load(open(os.path.join(SETS, "scitsr", "index.json"))):
+        out.append(("upright_scitsr", tid, 0, "orig"))
+    kinds = os.environ.get("R3_KINDS")
+    if kinds: out = [x for x in out if any(x[0].startswith(k) for k in kinds.split(","))]
     return out
 
 
 def load_item(kind, tid, theta, mode):
-    if kind == "rot":
-        g = json.load(open(os.path.join(SETS, "rot", tid + ".json"), encoding="utf-8"))
-        im = Image.open(os.path.join(SETS, "rot", tid + ".png")).convert("RGB")
+    if kind == "rot" or mode == "img":
+        sset = "rot" if kind == "rot" else kind.split("_")[1]
+        g = json.load(open(os.path.join(SETS, sset, tid + ".json"), encoding="utf-8"))
+        im = Image.open(os.path.join(SETS, sset, tid + ".png")).convert("RGB")
         words = BM.chunks(g, 0)
         for w in words: w["bbox"] = [w["bbox"][0], w["bbox"][1], w["bbox"][2], w["bbox"][3]]
         from make_pdfs import make_multi
-        p = os.path.join(R3, "tmp_" + tid + ".pdf"); make_multi("rot", [tid], p, "tight")
+        p = os.path.join(R3, "tmp_" + tid + ".pdf"); make_multi(sset, [tid], p, "tight")
         ox, oy = 20.0, 20.0
         _, _, angs, rot = chars_words(open(p, "rb").read(), 0, 1.0, [ox, oy, ox + im.size[0], oy + im.size[1]])
         os.remove(p)
-        return g, im, words, text_angle(angs, rot), 90
-    s = "icdar" if kind.startswith("icdar") else "scitsr"
+        return g, im, words, text_angle(angs, rot), (90 if kind == "rot" else 0)
+    s = "icdar" if "icdar" in kind else "scitsr"
     g = json.load(open(os.path.join(SETS, s, tid + ".json"), encoding="utf-8"))
     if s == "icdar":
         src = open(os.path.join(SETS, "icdar_pdf", g["filename"]), "rb").read(); pageno = g["page"] - 1; S = g["scale"]
@@ -155,7 +166,7 @@ def load_item(kind, tid, theta, mode):
         pg = pdfium.PdfDocument(src)[0]; cl, cb, cr, ct = pg.get_cropbox()
         im0 = Image.open(os.path.join(SETS, "scitsr", tid + ".png")); cx, cy = g.get("crop_px", [0, 0])
         user = [cx / S + cl, ct - (cy + im0.size[1]) / S, (cx + im0.size[0]) / S + cl, ct - cy / S]
-    if mode == "asis":
+    if mode in ("asis", "orig"):
         pdfb, T = src, None
     else:
         pdfb, T = build_pdf_rotated(src, pageno, theta, mode)
