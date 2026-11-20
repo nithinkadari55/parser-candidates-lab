@@ -57,6 +57,15 @@ impl DownRect {
     pub fn contains_point(&self, x: f32, y: f32) -> bool {
         x >= self.x0 && x <= self.x1 && y >= self.y0 && y <= self.y1
     }
+
+    pub fn overlaps(&self, x0: f32, y0: f32, x1: f32, y1: f32) -> bool {
+        x0 < self.x1 && self.x0 < x1 && y0 < self.y1 && self.y0 < y1
+    }
+
+    pub fn selects(&self, bx0: f32, by0: f32, bx1: f32, by1: f32, ox: f32, oy: f32) -> bool {
+        self.contains_point((bx0 + bx1) / 2.0, (by0 + by1) / 2.0)
+            || (self.contains_point(ox, oy) && self.overlaps(bx0, by0, bx1, by1))
+    }
 }
 
 pub fn to_top_left(bbox: &[f64; 4], mediabox: &[f64; 4], pad: f64) -> DownRect {
