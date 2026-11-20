@@ -71,7 +71,7 @@ def text_angle(angs, page_rot):
         d = (round(math.degrees(a) / 90.0) * 90) % 360
         votes[d] = votes.get(d, 0) + 1
     d = max(votes, key=votes.get)
-    return (d - page_rot) % 360
+    return (-d - page_rot) % 360
 
 
 def build_pdf_rotated(src_pdf, pageno, theta, mode):
@@ -248,7 +248,7 @@ def main():
         except Exception as e:
             print("skip", kind, tid, mode, repr(e)[:200], flush=True); continue
         t0 = time.perf_counter(); pp, ppc = orient.pplcnet(im); t1 = time.perf_counter(); oxa, oxc = orient.onnxtr(im); t2 = time.perf_counter()
-        preds = dict(none=0, text=t_text if t_text is not None else 0, pplcnet=pp, pplcnet_inv=(360 - pp) % 360, onnxtr=oxa, onnxtr_inv=(360 - oxa) % 360)
+        preds = dict(none=0, text=t_text if t_text is not None else 0, pplcnet=(360 - pp) % 360, pplcnet_raw=pp, onnxtr=oxa, onnxtr_inv=(360 - oxa) % 360)
         if truth is not None: preds["oracle"] = truth
         res = {}
         for corr in sorted(set(preds.values())):

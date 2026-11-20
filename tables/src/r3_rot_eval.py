@@ -1,6 +1,6 @@
 import os, sys, json, glob, random, statistics
 
-METHODS = ["none", "text", "pplcnet", "pplcnet_inv", "onnxtr", "onnxtr_inv", "oracle"]
+METHODS = ["none", "text", "pplcnet", "pplcnet_raw", "onnxtr", "onnxtr_inv", "oracle"]
 
 
 def paired(x, y):
@@ -43,7 +43,7 @@ def main():
             P(f"| {g} | {len(rs)} | " + " | ".join(vals[m] for m in METHODS) + " |")
         P(f"\nPaired tests vs no correction ({model}):")
         for g, rs in groups.items():
-            for m in ("text", "pplcnet", "pplcnet_inv", "onnxtr", "onnxtr_inv"):
+            for m in ("text", "pplcnet", "pplcnet_raw", "onnxtr", "onnxtr_inv"):
                 xs, ys = [], []
                 for r in rs:
                     a = r["scores"].get(f"{model}@{r['preds'][m]}"); b = r["scores"].get(f"{model}@0")
