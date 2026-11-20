@@ -76,6 +76,13 @@ jobs:
           time formula/r3/rust/target/release/rustypaper-region --input "$WORK/regions.jsonl" --output "$WORK/rustypaper.jsonl"
           time formula/r3/rust/target/release/kakemono-region --input "$WORK/regions.jsonl" --output "$WORK/kakemono.jsonl"
           time formula/r3/go/bin/gopdfkit-region --input "$WORK/regions.jsonl" --output "$WORK/gopdfkit.jsonl"
+      - name: Glyph-selection debug dump (artifact only)
+        run: |
+          export R3_DEBUG=1
+          formula/r3/rust/target/release/rustypaper-region --input "$WORK/regions.jsonl" --output /dev/null 2> "$WORK/debug_rustypaper.log"
+          formula/r3/rust/target/release/kakemono-region --input "$WORK/regions.jsonl" --output /dev/null 2> "$WORK/debug_kakemono.log"
+          formula/r3/go/bin/gopdfkit-region --input "$WORK/regions.jsonl" --output /dev/null 2> "$WORK/debug_gopdfkit.log"
+          wc -l "$WORK"/debug_*.log
       - name: Show outputs
         run: |
           python formula/r3/rust/ci/show.py --regions "$WORK/regions.jsonl" \
@@ -84,5 +91,7 @@ jobs:
         if: always()
         with:
           name: formula-r3-rust-outputs
-          path: ${{ runner.temp }}/work/*.jsonl
+          path: |
+            ${{ runner.temp }}/work/*.jsonl
+            ${{ runner.temp }}/work/*.log
           retention-days: 7

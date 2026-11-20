@@ -43,19 +43,22 @@ def page_chars(tp):
     return chars
 
 
-def rows_of(chars, tol=2.0):
-    chars = sorted(chars, key=lambda c: -(c["box"][1] + c["box"][3]) / 2)
+def rows_of(chars):
+    chars = sorted(chars, key=lambda c: -(c["box"][3] - c["box"][1]))
     rows = []
     for c in chars:
         cy = (c["box"][1] + c["box"][3]) / 2
-        if rows and abs(rows[-1]["cy"] - cy) <= tol:
-            rows[-1]["chars"].append(c)
+        for row in rows:
+            if row["lo"] <= cy <= row["hi"]:
+                row["chars"].append(c)
+                break
         else:
-            rows.append({"cy": cy, "chars": [c]})
+            rows.append({"lo": c["box"][1], "hi": c["box"][3], "chars": [c]})
+    rows.sort(key=lambda r: -r["hi"])
     return rows
 
 
-def segments_of(row, gap=12.0):
+def segments_of(row, gap=20.0):
     cs = sorted(row["chars"], key=lambda c: c["box"][0])
     segs = [[cs[0]]]
     for c in cs[1:]:
@@ -71,13 +74,25 @@ def union(boxes):
             max(b[2] for b in boxes), max(b[3] for b in boxes)]
 
 
+def prose_words(seg):
+    words, run = 0, 0
+    for c in seg + [None]:
+        if c is not None and c["ch"].isalpha() and not is_math_font(c["font"]):
+            run += 1
+            continue
+        if run >= 4:
+            words += 1
+        run = 0
+    return words
+
+
 def display_blocks(chars):
     cands = []
     for row in rows_of(chars):
         for seg in segments_of(row):
             n = len(seg)
             m = sum(is_math_font(c["font"]) for c in seg)
-            if n >= 3 and m / n >= 0.5:
+            if n >= 2 and m / n >= 0.4 and prose_words(seg) <= 1:
                 cands.append(seg)
     blocks = []
     for seg in cands:
@@ -87,14 +102,14 @@ def display_blocks(chars):
             bb = blk["box"]
             v_gap = max(bb[1] - box[3], box[1] - bb[3])
             h_overlap = min(bb[2], box[2]) - max(bb[0], box[0])
-            if v_gap < 10.0 and h_overlap > 0:
+            if v_gap < 6.0 and h_overlap > 0:
                 blk["chars"].extend(seg)
                 blk["box"] = union([bb, box])
                 merged = True
                 break
         if not merged:
             blocks.append({"chars": list(seg), "box": box})
-    return blocks
+    return [b for b in blocks if len(b["chars"]) >= 6]
 
 
 def text_of(chars):
@@ -115,7 +130,7 @@ def main():
     for pdf_path in args.pdf:
         stem = os.path.splitext(os.path.basename(pdf_path))[0]
         doc = pdfium.PdfDocument(pdf_path)
-        got = 0
+        found = []
         fonts = {}
         for pi in range(min(len(doc), args.max_pages)):
             page = doc[pi]
@@ -137,15 +152,16 @@ def main():
                 rows.append({"id": f"{stem}_p0_blank", "pdf": os.path.abspath(pdf_path), "page_index": 0,
                              "bbox": [mx0 + 2, my0 + 2, mx0 + 20, my0 + 12], "mediabox": mediabox})
             for k, blk in enumerate(display_blocks(chars)):
-                if got >= args.per_pdf:
-                    break
-                got += 1
-                rows.append({"id": f"{stem}_p{pi}_eq{k}", "pdf": os.path.abspath(pdf_path), "page_index": pi,
-                             "bbox": [round(v, 3) for v in blk["box"]], "mediabox": mediabox,
-                             "pdfium_text": text_of(blk["chars"])})
+                found.append((len(blk["chars"]), pi, k, mediabox, blk))
             tp.close()
             page.close()
         doc.close()
+        chosen = sorted(found, key=lambda f: -f[0])[:args.per_pdf]
+        got = len(chosen)
+        for _, pi, k, mediabox, blk in sorted(chosen, key=lambda f: (f[1], f[2])):
+            rows.append({"id": f"{stem}_p{pi}_eq{k}", "pdf": os.path.abspath(pdf_path), "page_index": pi,
+                         "bbox": [round(v, 3) for v in blk["box"]], "mediabox": mediabox,
+                         "pdfium_text": text_of(blk["chars"])})
         top = sorted(fonts.items(), key=lambda kv: -kv[1])[:12]
         print(f"{stem}: regions={got} fonts={top}", file=sys.stderr)
 

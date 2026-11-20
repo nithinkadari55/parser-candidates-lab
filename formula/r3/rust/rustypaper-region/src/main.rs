@@ -68,6 +68,31 @@ fn region(doc: &mut Doc, r: &Region, pad: f64) -> Outcome {
 
     let started = Instant::now();
     let rect = to_top_left(&r.bbox, &r.mediabox, pad);
+    if std::env::var_os("R3_DEBUG").is_some() {
+        let near = to_top_left(&r.bbox, &r.mediabox, pad + 6.0);
+        let mut buf = [0u8; 4];
+        for g in &page.glyphs {
+            if near.contains_point(g.bbox.center_x(), g.bbox.center_y()) {
+                let inside = rect.contains_point(g.bbox.center_x(), g.bbox.center_y());
+                eprintln!(
+                    "R3_DEBUG rustypaper {} {} {:?} bbox=[{:.2},{:.2},{:.2},{:.2}] origin_y={:.2} size={:.2} font={}",
+                    r.id,
+                    if inside { "IN " } else { "OUT" },
+                    page.glyph_str(g, &mut buf),
+                    g.bbox.x0, g.bbox.y0, g.bbox.x1, g.bbox.y1, g.origin.y, g.size,
+                    doc.fonts.name(g.font)
+                );
+            }
+        }
+        for p in &page.paths {
+            if near.contains_point(p.bbox.center_x(), p.bbox.center_y()) {
+                eprintln!(
+                    "R3_DEBUG rustypaper {} path {:?} bbox=[{:.2},{:.2},{:.2},{:.2}]",
+                    r.id, p.kind, p.bbox.x0, p.bbox.y0, p.bbox.x1, p.bbox.y1
+                );
+            }
+        }
+    }
     let glyphs: Vec<_> = page
         .glyphs
         .iter()

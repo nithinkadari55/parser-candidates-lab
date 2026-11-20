@@ -8,6 +8,8 @@
 package latex
 
 import (
+	"fmt"
+	"os"
 	"sort"
 
 	"github.com/go-pdfkit/reader"
@@ -29,18 +31,22 @@ func HarnessReadPage(d *reader.Document, pageNumber int) (*HarnessPage, error) {
 
 func (h *HarnessPage) VisibleBox() [4]float64 { return h.box }
 
-func (h *HarnessPage) Region(x0, y0, x1, y1 float64) (string, int, int) {
+func (h *HarnessPage) Region(id string, x0, y0, x1, y1 float64) (string, int, int) {
 	x0, x1 = x0-h.box[0], x1-h.box[0]
 	y0, y1 = y0-h.box[1], y1-h.box[1]
 	inside := func(x, y float64) bool { return x >= x0 && x <= x1 && y >= y0 && y <= y1 }
 	var items []atom
 	for _, a := range h.p.atoms {
 		cy := a.y + 0.25*a.size
-		if a.sh.math == mathExt {
+		if a.sh.math == mathExt || radicalOf(a) {
 			cy = a.y - 0.6*a.size
 		}
-		if inside(a.midX(), cy) {
+		in := inside(a.midX(), cy)
+		if in {
 			items = append(items, a)
+		}
+		if os.Getenv("R3_DEBUG") != "" && a.midX() >= x0-6 && a.midX() <= x1+6 && cy >= y0-6 && cy <= y1+6 {
+			fmt.Fprintf(os.Stderr, "R3_DEBUG gopdfkit %s in=%v %q x=%.2f y=%.2f w=%.2f size=%.2f role=%d\n", id, in, a.text, a.x, a.y, a.width, a.size, a.sh.math)
 		}
 	}
 	if len(items) == 0 {

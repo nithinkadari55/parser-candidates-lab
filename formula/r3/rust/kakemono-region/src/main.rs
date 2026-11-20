@@ -79,6 +79,27 @@ fn region(doc: &mut Doc, r: &Region, pad: f64, layout: &LayoutConfig) -> Outcome
     let d = to_top_left(&r.bbox, &r.mediabox, pad);
     let rect = Rect::new(d.x0, d.y0, d.x1, d.y1);
     let cfg = &layout.math;
+    if std::env::var_os("R3_DEBUG").is_some() {
+        let n = to_top_left(&r.bbox, &r.mediabox, pad + 6.0);
+        for g in page.lines.iter().flat_map(|line| line.glyphs.iter()) {
+            if n.contains_point(g.ink.cx(), g.ink.cy()) {
+                let inside = d.contains_point(g.ink.cx(), g.ink.cy());
+                let font = fonts.get(g.font as usize).map(|f| f.name.as_str()).unwrap_or("?");
+                eprintln!(
+                    "R3_DEBUG kakemono {} {} {:?} ink=[{:.2},{:.2},{:.2},{:.2}] y={:.2} size={:.2} font={}",
+                    r.id, if inside { "IN " } else { "OUT" }, g.text, g.ink.x0, g.ink.y0, g.ink.x1, g.ink.y1, g.y, g.size, font
+                );
+            }
+        }
+        for p in &page.paths {
+            if n.contains_point(p.bbox.cx(), p.bbox.cy()) {
+                eprintln!(
+                    "R3_DEBUG kakemono {} path white={} bbox=[{:.2},{:.2},{:.2},{:.2}]",
+                    r.id, p.is_white(), p.bbox.x0, p.bbox.y0, p.bbox.x1, p.bbox.y1
+                );
+            }
+        }
+    }
     let glyphs: Vec<LineGlyph> = page
         .lines
         .iter()

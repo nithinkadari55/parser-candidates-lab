@@ -125,7 +125,7 @@ func handle(cur **doc, r region, pad float64) (o output, ms *float64) {
 	start := time.Now()
 	x0, x1 := math.Min(r.BBox[0], r.BBox[2])-pad, math.Max(r.BBox[0], r.BBox[2])+pad
 	y0, y1 := math.Min(r.BBox[1], r.BBox[3])-pad, math.Max(r.BBox[1], r.BBox[3])+pad
-	tex, atoms, _ := pr.page.Region(x0, y0, x1, y1)
+	tex, atoms, _ := pr.page.Region(r.ID, x0, y0, x1, y1)
 	elapsed := msSince(start)
 	o.Error = nil
 	if atoms == 0 || tex == "" {
