@@ -19,6 +19,7 @@ on:
   push:
     paths:
       - "formula/**"
+      - "!formula/r3/**"
       - ".github/workflows/formula.yml"
 
 concurrency:
