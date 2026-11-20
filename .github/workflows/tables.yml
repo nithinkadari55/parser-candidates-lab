@@ -18,6 +18,9 @@ on:
       limit:
         description: "smoke test: only the first N tables of each set (empty = all)"
         default: ""
+      round3:
+        description: "round-3 tests instead of the benchmark: comma list of select,detect,rotate (empty = benchmark)"
+        default: ""
   push:
     paths:
       - "tables/**"
@@ -44,7 +47,7 @@ jobs:
       - run: python tables/src/probe.py
 
   prep:
-    if: ${{ inputs.probe != 'true' }}
+    if: ${{ inputs.probe != 'true' && (inputs.round3 == '' || inputs.round3 == null) }}
     runs-on: ubuntu-latest
     timeout-minutes: 120
     outputs:
@@ -135,6 +138,7 @@ jobs:
     timeout-minutes: 150
     strategy:
       fail-fast: false
+      max-parallel: 12
       matrix: ${{ fromJSON(needs.prep.outputs.matrix) }}
     defaults:
       run:
@@ -196,11 +200,12 @@ jobs:
 
   timing:
     needs: prep
-    if: ${{ inputs.probe != 'true' && (github.event_name != 'workflow_dispatch' || inputs.timing == 'true') }}
+    if: ${{ inputs.probe != 'true' && (inputs.round3 == '' || inputs.round3 == null) && (github.event_name != 'workflow_dispatch' || inputs.timing == 'true') }}
     runs-on: ubuntu-latest
     timeout-minutes: 150
     strategy:
       fail-fast: false
+      max-parallel: 12
       matrix:
         group: [onnx, torch, docling]
     defaults:
@@ -250,7 +255,7 @@ jobs:
 
   aggregate:
     needs: [run, timing]
-    if: ${{ always() && inputs.probe != 'true' }}
+    if: ${{ always() && inputs.probe != 'true' && (inputs.round3 == '' || inputs.round3 == null) }}
     runs-on: ubuntu-latest
     timeout-minutes: 60
     permissions:
@@ -292,3 +297,185 @@ jobs:
         with:
           name: report
           path: results/report.md
+
+  r3_select:
+    if: ${{ contains(inputs.round3, 'select') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 150
+    permissions:
+      actions: read
+      contents: read
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install
+        run: |
+          pip install -r tables/requirements.txt scikit-learn==1.7.2 xgboost==3.1.1
+          pip uninstall -y opencv-python opencv-python-headless || true
+          pip install opencv-python-headless==5.1.0.95
+      - uses: actions/cache/restore@v4
+        with:
+          path: tables/work/data/sets
+          key: tables-sets-v2-${{ hashFiles('tables/src/prep_*.py', 'tables/src/fetch_data.py') }}
+          fail-on-cache-miss: true
+      - name: Stored predictions of run 44486868877
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh run download 44486868877 -R ${{ github.repository }} -p "pred-tableformer-*" -p "pred-tatr16-*" -D preds
+          ls preds | head -40
+      - name: Selector
+        working-directory: tables/src
+        run: |
+          python fetch_models.py grits
+          python r3_select.py ../../preds | tail -n 80
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: r3-select
+          path: tables/work/out/r3/
+
+  r3_det:
+    if: ${{ contains(inputs.round3, 'detect') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 150
+    strategy:
+      fail-fast: false
+      max-parallel: 12
+      matrix:
+        model: [pico, tatrdet, yolox_tiny, yolox_l]
+        shard: [0, 1, 2, 3, 4, 5]
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install
+        run: |
+          pip install -r tables/requirements.txt
+          pip uninstall -y opencv-python opencv-python-headless || true
+          pip install opencv-python-headless==5.1.0.95
+      - id: odb
+        uses: actions/cache/restore@v4
+        with:
+          path: /home/runner/odb
+          key: odb-english-v1
+      - name: Fetch OmniDocBench English pages if the cache is gone
+        if: steps.odb.outputs.cache-hit != 'true'
+        working-directory: tables/src
+        run: python r3_detect.py fetch_odb
+      - name: Detect
+        working-directory: tables/src
+        run: |
+          python r3_detect.py fetch
+          python r3_detect.py ${{ matrix.model }} ${{ matrix.shard }} 6
+          rm -rf ~/dln
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: r3det-${{ matrix.model }}-${{ matrix.shard }}
+          path: tables/work/out/r3det/
+
+  r3_det_eval:
+    needs: r3_det
+    if: ${{ always() && contains(inputs.round3, 'detect') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions:
+      actions: read
+      contents: read
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install numpy==2.4.6 ensemble-boxes==1.0.9 huggingface_hub==0.35.3
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: r3det-*
+          path: res/r3det
+      - name: Heron INT8 detections and DocLayNet ground truth from order run 44477997398
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh run download 44477997398 -R ${{ github.repository }} -p "layout-heron_int8-*" -p "layout-heron-*" -D res/order
+          python -c "from huggingface_hub import hf_hub_download as h; import os; h('opendatalab/OmniDocBench', 'OmniDocBench.json', repo_type='dataset', local_dir=os.path.expanduser('~/odb'))"
+      - name: Evaluate
+        run: python tables/src/r3_det_eval.py res | tail -n 120
+      - uses: actions/upload-artifact@v4
+        with:
+          name: r3-detect
+          path: res/r3/
+
+  r3_rot:
+    if: ${{ contains(inputs.round3, 'rotate') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 150
+    strategy:
+      fail-fast: false
+      max-parallel: 12
+      matrix:
+        shard: [0, 1, 2, 3, 4, 5, 6, 7]
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install
+        run: |
+          pip install -r tables/requirements.txt docling-rs==2.84.0 pypdf==6.1.3 "onnxtr @ git+https://github.com/felixdittrich92/OnnxTR@b77b5669ef84913b006b2da204d5a52f6eb0c7c7"
+          pip uninstall -y opencv-python opencv-python-headless || true
+          pip install opencv-python-headless==5.1.0.95
+      - uses: actions/cache/restore@v4
+        with:
+          path: tables/work/data/sets
+          key: tables-sets-v2-${{ hashFiles('tables/src/prep_*.py', 'tables/src/fetch_data.py') }}
+          fail-on-cache-miss: true
+      - name: Rotate, correct and recognise
+        working-directory: tables/src
+        run: |
+          python fetch_models.py tatr16 orient tableformer grits
+          python r3_rotate.py ${{ matrix.shard }} 8
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: r3rot-${{ matrix.shard }}
+          path: tables/work/out/r3rot/*.jsonl
+
+  r3_rot_eval:
+    needs: r3_rot
+    if: ${{ always() && contains(inputs.round3, 'rotate') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install scipy==1.16.3 numpy==2.4.6
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: r3rot-*
+          path: res
+      - run: python tables/src/r3_rot_eval.py res | tail -n 120
+      - uses: actions/upload-artifact@v4
+        with:
+          name: r3-rotate
+          path: res/r3/

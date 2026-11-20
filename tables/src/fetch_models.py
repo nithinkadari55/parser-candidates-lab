@@ -47,6 +47,13 @@ def main(which):
             dst = os.path.join(TATR_SRC, fn)
             if not os.path.exists(dst):
                 urllib.request.urlretrieve(f"https://raw.githubusercontent.com/microsoft/table-transformer/{TATR_COMMIT}/src/{fn}", dst)
+    elif which == "orient":
+        d = os.path.join(MODELS, "orient"); os.makedirs(d, exist_ok=True)
+        p = os.path.join(d, "pp-lcnet_x1_0_doc_ori.onnx")
+        if not os.path.exists(p): urllib.request.urlretrieve("https://github.com/GreatV/oar-ocr/releases/download/v0.3.0/pp-lcnet_x1_0_doc_ori.onnx", p)
+        q = os.path.join(d, "crop_ori.onnx")
+        if not os.path.exists(q): shutil.copy(hf_hub_download("Felix92/onnxtr-mobilenet-v3-small-crop-orientation", "model.onnx"), q)
+        for f in sorted(os.listdir(d)): print("orient file", f, os.path.getsize(os.path.join(d, f)), sha(os.path.join(d, f)))
     elif which == "grits":
         os.makedirs(TATR_SRC, exist_ok=True)
         dst = os.path.join(TATR_SRC, "grits.py")
