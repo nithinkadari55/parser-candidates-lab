@@ -181,10 +181,10 @@ def main():
     if not os.path.isfile(os.path.join(a.cdm_src, "cdm", "modules", "latex2bbox_color.py")):
         sys.exit(f"CDM sources not found under {a.cdm_src}; run setup_cdm.sh")
     sys.path.insert(0, a.cdm_src)
-    import cdm.cdm
     import cdm.modules.latex2bbox_color  # noqa: F401
+    from cdm.cdm import _get_total_color_list
 
-    cdm.cdm._get_total_color_list()
+    _get_total_color_list()
 
     items, seen = [], set()
     with open(a.input, encoding="utf-8") as f:
