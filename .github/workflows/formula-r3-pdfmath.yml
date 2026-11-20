@@ -1,0 +1,73 @@
+name: formula-r3-pdfmath
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [formula-r3-pdfmath]
+    paths:
+      - "formula/r3/pdfmath/**"
+      - ".github/workflows/formula-r3-pdfmath.yml"
+
+concurrency:
+  group: formula-r3-pdfmath-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    defaults: { run: { working-directory: formula/r3/pdfmath } }
+    steps:
+      - uses: actions/checkout@v4
+      - run: |
+          echo "PDF_DIR=$RUNNER_TEMP/pdfs" >> "$GITHUB_ENV"
+          echo "WORK=$RUNNER_TEMP/work" >> "$GITHUB_ENV"
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.11", cache: pip, cache-dependency-path: "formula/r3/pdfmath/requirements*.txt" }
+      - run: pip install -r requirements.txt -r requirements-smoke.txt
+      - run: |
+          pip show pdfmath pdfminer.six | grep -E "^(Name|Version|Location)"
+          which kpsewhich || echo "no kpsewhich: TFM metrics unavailable, pdfmath falls back to /Widths"
+      - name: Download arXiv PDFs
+        run: |
+          mkdir -p "$PDF_DIR" "$WORK"
+          for id in 2611.23210v1 2611.23027v1; do
+            curl -fsSL -A "Mozilla/5.0 (X11; Linux x86_64) parser-candidates-lab-ci" -o "$PDF_DIR/$id.pdf" "https://arxiv.org/pdf/$id"
+            sleep 3
+          done
+          ls -la "$PDF_DIR"
+      - name: Build regions (pdfmath detection -> pdfium user-space boxes)
+        run: python smoke/make_regions.py --pdf "$PDF_DIR"/*.pdf --out "$WORK/regions.jsonl"
+      - name: Harness without TFM
+        run: |
+          time python run_pdfmath.py --input "$WORK/regions.jsonl" --output "$WORK/out_notfm.jsonl" --workers 4
+          python smoke/compare.py --regions "$WORK/regions.jsonl" --out "$WORK/out_notfm.jsonl"
+      - name: Install TeX TFM metrics
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq --no-install-recommends texlive-base lmodern > /dev/null
+          for f in cmr10 cmmi10 cmsy10 cmex10 msam10 msbm10 lmmi10 lmsy10 lmex10; do echo "$f: $(kpsewhich $f.tfm)"; done
+      - name: Harness with TFM
+        run: |
+          time python run_pdfmath.py --input "$WORK/regions.jsonl" --output "$WORK/out_tfm.jsonl" --workers 4
+          python smoke/compare.py --regions "$WORK/regions.jsonl" --out "$WORK/out_tfm.jsonl"
+          python - "$WORK/out_notfm.jsonl" "$WORK/out_tfm.jsonl" <<'EOF'
+          import json, sys
+          a = {json.loads(l)["id"]: json.loads(l) for l in open(sys.argv[1])}
+          b = {json.loads(l)["id"]: json.loads(l) for l in open(sys.argv[2])}
+          same = sum(a[k]["latex"] == b[k]["latex"] for k in a)
+          print(f"latex identical without/with TFM: {same}/{len(a)}")
+          for k in a:
+              if a[k]["latex"] != b[k]["latex"]:
+                  print(k, "\n  noTFM:", a[k]["latex"], a[k]["confidence"], "\n  TFM:  ", b[k]["latex"], b[k]["confidence"])
+          EOF
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: pdfmath-smoke-outputs
+          path: |
+            ${{ runner.temp }}/work/*.jsonl
+          retention-days: 7

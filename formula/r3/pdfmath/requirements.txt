@@ -1,0 +1,2 @@
+pdfminer.six==20260107
+pdfmath @ git+https://github.com/adamdeprince/pdfmath.git@5d811906373a9ef43b6bae13167761a71fe253b3
