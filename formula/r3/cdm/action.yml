@@ -1,0 +1,41 @@
+name: cdm-setup
+description: TeX Live subset, Ghostscript, ImageMagick 7 built once and cached, OmniDocBench CDM sources at a pinned sha, Python deps
+inputs:
+  im-version:
+    description: ImageMagick 7 release tag to build
+    default: "7.1.1-47"
+  odb-sha:
+    description: OmniDocBench commit providing src/metrics/cdm
+    default: "7ddb8df411ad9bd2fff139acafe0ed16aa1694fe"
+  python-version:
+    description: Python for the CDM code (upstream requires >=3.10,<3.12)
+    default: "3.11"
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-python@v5
+      with:
+        python-version: ${{ inputs.python-version }}
+    - name: Prepare ImageMagick prefix
+      shell: bash
+      run: sudo mkdir -p /opt/im7 && sudo chown "$(id -u):$(id -g)" /opt/im7
+    - name: Restore ImageMagick build
+      id: im-cache
+      uses: actions/cache/restore@v4
+      with:
+        path: /opt/im7
+        key: imagemagick-${{ inputs.im-version }}-ubuntu-24.04-opt-im7-v1
+    - name: Setup CDM
+      shell: bash
+      env:
+        IM_VERSION: ${{ inputs.im-version }}
+        IM_PREFIX: /opt/im7
+        ODB_SHA: ${{ inputs.odb-sha }}
+        PYTHON: python
+      run: bash "${{ github.action_path }}/setup_cdm.sh"
+    - name: Save ImageMagick build
+      if: steps.im-cache.outputs.cache-hit != 'true'
+      uses: actions/cache/save@v4
+      with:
+        path: /opt/im7
+        key: imagemagick-${{ inputs.im-version }}-ubuntu-24.04-opt-im7-v1

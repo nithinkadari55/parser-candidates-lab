@@ -1,0 +1,113 @@
+name: formula-r3-cdm
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [formula-r3-cdm]
+    paths:
+      - "formula/r3/cdm/**"
+      - ".github/workflows/formula-r3-cdm.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: formula-r3-cdm-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  PYTHONUNBUFFERED: "1"
+  UNIMERNET_SHA: 5a2c80d96b1d2dba447ff18d873e5fb73ba03c35
+
+jobs:
+  smoke:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    defaults:
+      run:
+        shell: bash
+        working-directory: formula/r3/cdm
+    steps:
+      - uses: actions/checkout@v4
+      - name: CDM setup (apt, ImageMagick 7 cached, policy, upstream CDM)
+        uses: ./formula/r3/cdm
+      - name: Environment
+        run: |
+          echo "nproc=$(nproc)"
+          magick -version | head -1
+          pdflatex --version | head -1
+          grep -m1 -A1 'ProvidesPackage{xcolor}' "$(kpsewhich xcolor.sty)"
+          gs --version
+          git -C _upstream rev-parse HEAD
+      - name: Example JSON (UniMERNet cdm/assets/example/input_example.json)
+        run: |
+          mkdir -p out
+          curl -sSfL "https://raw.githubusercontent.com/opendatalab/UniMERNet/$UNIMERNET_SHA/cdm/assets/example/input_example.json" -o out/input_example.json
+          python tests/example_to_pairs.py out/input_example.json out/example_pairs.jsonl
+          python run_cdm.py --input out/example_pairs.jsonl --output out/example_scores.jsonl --workers "$(nproc)"
+          python tests/check_scores.py out/example_pairs.jsonl out/example_scores.jsonl | tee out/example_check.txt
+      - name: Own tests (fraction, matrix, aligned, cases, long, wrong, empty)
+        run: |
+          python run_cdm.py --input tests/own_pairs.jsonl --output out/own_scores.jsonl --workers "$(nproc)"
+          python tests/check_scores.py tests/own_pairs.jsonl out/own_scores.jsonl | tee out/own_check.txt
+      - name: Timeout path is explicit (sample-timeout 0.5 s)
+        run: |
+          head -n 5 tests/own_pairs.jsonl > out/to_pairs.jsonl
+          python run_cdm.py --input out/to_pairs.jsonl --output out/to_scores.jsonl --workers "$(nproc)" --sample-timeout 0.5
+          cat out/to_scores.jsonl
+          python - <<'PY'
+          import json
+          ids = [json.loads(l)["id"] for l in open("out/to_pairs.jsonl")]
+          rows = {json.loads(l)["id"]: json.loads(l) for l in open("out/to_scores.jsonl")}
+          assert set(ids) == set(rows), "missing ids"
+          assert any(r["status"] == "error" and "timeout" in (r["error"] or "") for r in rows.values()), "no timeout row"
+          print("timeout rows recorded explicitly")
+          PY
+      - name: Timing (pools = nproc)
+        run: |
+          : > out/timing_pairs.jsonl
+          for k in $(seq 1 8); do
+            cat out/example_pairs.jsonl tests/own_pairs.jsonl | jq -c --arg k "$k" '.id = "t\($k)/" + .id' >> out/timing_pairs.jsonl
+          done
+          wc -l out/timing_pairs.jsonl
+          python run_cdm.py --input out/timing_pairs.jsonl --output out/timing_scores.jsonl --workers "$(nproc)" 2> out/timing_nproc.txt
+          cat out/timing_nproc.txt
+          head -n 17 out/timing_pairs.jsonl > out/timing1_pairs.jsonl
+          python run_cdm.py --input out/timing1_pairs.jsonl --output out/timing1_scores.jsonl --workers 1 2> out/timing_1.txt
+          cat out/timing_1.txt
+      - name: Summary
+        if: always()
+        run: |
+          {
+            echo '## CDM smoke'
+            echo "nproc=$(nproc); $(magick -version | head -1); $(pdflatex --version | head -1)"
+            for f in example_check own_check; do echo "### $f"; echo '```'; cat out/$f.txt 2>/dev/null; echo '```'; done
+            echo '### timing (pools = nproc)'; echo '```'; cat out/timing_nproc.txt 2>/dev/null; echo '```'
+            echo '### timing (1 worker, 17 samples)'; echo '```'; cat out/timing_1.txt 2>/dev/null; echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: cdm-smoke
+          path: formula/r3/cdm/out/
+
+  cache-reuse:
+    needs: smoke
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      REQUIRE_IM_CACHE: "1"
+    defaults:
+      run:
+        shell: bash
+        working-directory: formula/r3/cdm
+    steps:
+      - uses: actions/checkout@v4
+      - name: CDM setup (expects ImageMagick cache hit)
+        id: setup
+        uses: ./formula/r3/cdm
+      - name: Own tests on the cached ImageMagick
+        run: |
+          mkdir -p out
+          python run_cdm.py --input tests/own_pairs.jsonl --output out/own_scores.jsonl --workers "$(nproc)"
+          python tests/check_scores.py tests/own_pairs.jsonl out/own_scores.jsonl
