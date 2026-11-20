@@ -1,0 +1,148 @@
+name: order-t6
+
+on:
+  workflow_dispatch:
+    inputs:
+      ro_run:
+        description: "run with ro-*-logic-* artifacts (rects, decorations)"
+        default: "44483268299"
+      layout_run:
+        description: "run with layout-heron_int8-* artifacts"
+        default: "44477997398"
+  push:
+    paths:
+      - "order/t6/**"
+      - ".github/workflows/order-t6.yml"
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: order-t6-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  ODB_DIR: /home/runner/odb
+  DRD_DIR: /home/runner/drdoc
+  T6_ART: art
+  PYTHONUNBUFFERED: "1"
+  RO_RUN: ${{ inputs.ro_run || '44483268299' }}
+  LAYOUT_RUN: ${{ inputs.layout_run || '44477997398' }}
+
+jobs:
+  train:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      max-parallel: 8
+      matrix:
+        kind: [gt, gt_stock, h8, h8_stock]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: |
+          pip install -r order/requirements-core.txt -r order/requirements-pp.txt
+          pip install torch==2.5.1 --index-url https://download.pytorch.org/whl/cpu
+      - uses: actions/cache/restore@v4
+        with:
+          path: /home/runner/odb
+          key: odb-english-v1
+          fail-on-cache-miss: true
+      - uses: actions/cache/restore@v4
+        with:
+          path: /home/runner/drdoc
+          key: drdoc-dev-7a2bc38-v1
+          fail-on-cache-miss: true
+      - uses: actions/download-artifact@v4
+        with:
+          path: art
+          pattern: ro-*-logic-*
+          run-id: ${{ env.RO_RUN }}
+          github-token: ${{ github.token }}
+      - uses: actions/download-artifact@v4
+        with:
+          path: art
+          pattern: layout-heron_int8-*
+          run-id: ${{ env.LAYOUT_RUN }}
+          github-token: ${{ github.token }}
+      - run: mkdir -p out && python order/t6/train6.py ${{ matrix.kind }} out/${{ matrix.kind }}.npz out/train-${{ matrix.kind }}.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: model-${{ matrix.kind }}
+          path: out/
+
+  eval:
+    needs: train
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      max-parallel: 8
+      matrix:
+        shard: [0, 1, 2, 3, 4, 5, 6, 7]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install -r order/requirements-core.txt -r order/requirements-pp.txt
+      - uses: actions/cache/restore@v4
+        with:
+          path: /home/runner/odb
+          key: odb-english-v1
+          fail-on-cache-miss: true
+      - uses: actions/cache/restore@v4
+        with:
+          path: /home/runner/drdoc
+          key: drdoc-dev-7a2bc38-v1
+          fail-on-cache-miss: true
+      - uses: actions/download-artifact@v4
+        with:
+          path: art
+          pattern: ro-*-logic-*
+          run-id: ${{ env.RO_RUN }}
+          github-token: ${{ github.token }}
+      - uses: actions/download-artifact@v4
+        with:
+          path: art
+          pattern: layout-heron_int8-*
+          run-id: ${{ env.LAYOUT_RUN }}
+          github-token: ${{ github.token }}
+      - uses: actions/download-artifact@v4
+        with:
+          path: models
+          pattern: model-*
+          merge-multiple: true
+      - run: ls -la models && mkdir -p out && python order/t6/eval6.py models ${{ matrix.shard }} 8 out/eval6-${{ matrix.shard }}.jsonl
+      - uses: actions/upload-artifact@v4
+        with:
+          name: eval6-${{ matrix.shard }}
+          path: out/
+
+  aggregate:
+    needs: [train, eval]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install -r order/requirements-core.txt
+      - uses: actions/download-artifact@v4
+        with:
+          path: res
+      - run: |
+          mkdir -p out
+          python order/t6/agg6.py res out/t6.md
+          cat out/t6.md >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: t6-summary
+          path: out/
