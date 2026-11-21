@@ -10,7 +10,7 @@ on:
         description: "smoke test: only the first N items per set/shard (empty = all)"
         default: ""
       reuse_run:
-        description: "evaluation only: take the heavy r4sel-*/r4miss-*/r4lay-* artifacts from this earlier run ID"
+        description: "evaluation only: take the heavy r4sel-*/r4miss-*/r4lay-* artifacts from this earlier run ID (pp_eval accepts several IDs separated by spaces)"
         default: ""
       extra_runs:
         description: "report: evaluated artifacts from earlier runs, as runid:pattern pairs separated by spaces (e.g. 123:r4-sel)"
@@ -420,7 +420,7 @@ jobs:
           path: tables/work/out/r4/ppplus-*.jsonl
 
   pp_parity:
-    if: ${{ contains(inputs.parts, 'pp') && inputs.reuse_run == '' }}
+    if: ${{ contains(inputs.parts, 'parity') || (contains(inputs.parts, 'pp') && inputs.reuse_run == '') }}
     runs-on: ubuntu-latest
     timeout-minutes: 90
     defaults:
@@ -435,8 +435,9 @@ jobs:
         run: |
           pip install -r tables/requirements.txt
           pip install paddlepaddle==3.2.2 paddleocr==3.7.0 paddlex==3.7.2
+          C=$(pip freeze | grep -i "^opencv-contrib-python==" || echo "opencv-contrib-python")
           pip uninstall -y opencv-python opencv-python-headless opencv-contrib-python || true
-          pip install opencv-python-headless==5.1.0.95
+          pip install --no-deps "$C"
           pip list 2>/dev/null | grep -i -E "^(paddle|onnxruntime|numpy|opencv)"
       - id: odb
         uses: actions/cache/restore@v4
@@ -523,7 +524,7 @@ jobs:
         if: ${{ inputs.reuse_run != '' }}
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh run download ${{ inputs.reuse_run }} -R ${{ github.repository }} -p "r4pp-*" -D pp
+        run: for id in ${{ inputs.reuse_run }}; do gh run download $id -R ${{ github.repository }} -p "r4pp-*" -D pp/$id || true; done
       - name: Heron INT8 + GT (run 44477997398), YOLOX-L (run 44689850800), RF-DETR-Large (run 44880415246), OmniDocBench.json
         env:
           GH_TOKEN: ${{ github.token }}
@@ -533,7 +534,7 @@ jobs:
           gh run download 44880415246 -R ${{ github.repository }} -p "r4lay-*" -D rf
           python -c "from huggingface_hub import hf_hub_download as h; import os; h('opendatalab/OmniDocBench', 'OmniDocBench.json', repo_type='dataset', local_dir=os.path.expanduser('~/odb'))"
       - working-directory: tables/r4
-        run: python r4_pp_eval.py ../../pp ../../heron ../../r3det ../../rf ~/odb/OmniDocBench.json $(ls ../../pp/r4pp-parity/pp_parity.json 2>/dev/null) | tail -n 100
+        run: python r4_pp_eval.py ../../pp ../../heron ../../r3det ../../rf ~/odb/OmniDocBench.json $(find ../../pp -name pp_parity.json | head -1) | tail -n 100
       - uses: actions/upload-artifact@v4
         if: always()
         with:
