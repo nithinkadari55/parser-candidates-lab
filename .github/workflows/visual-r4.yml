@@ -11,6 +11,9 @@ on:
       layout_run:
         description: "order run with layout-heron_int8-* artifacts"
         default: "44477997398"
+      part:
+        description: "all | order (gap 13 only) | pics (gap 10 only)"
+        default: all
 
 permissions:
   contents: read
@@ -32,6 +35,7 @@ env:
 
 jobs:
   order-r4:
+    if: ${{ (inputs.part || 'all') != 'pics' }}
     runs-on: ubuntu-latest
     timeout-minutes: 120
     strategy:
@@ -44,7 +48,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-      - run: pip install -r order/requirements-core.txt
+      - run: pip install -r order/requirements-core.txt -r order/requirements-pp.txt
       - uses: actions/cache/restore@v4
         with:
           path: /home/runner/odb
@@ -75,6 +79,7 @@ jobs:
           path: out/
 
   probe:
+    if: ${{ (inputs.part || 'all') != 'pics' }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -114,6 +119,7 @@ jobs:
           path: out/
 
   prep-pics:
+    if: ${{ (inputs.part || 'all') != 'order' }}
     runs-on: ubuntu-latest
     timeout-minutes: 150
     steps:
@@ -146,7 +152,7 @@ jobs:
 
   pics:
     needs: [prep-pics, order-r4]
-    if: always()
+    if: ${{ always() && (inputs.part || 'all') != 'order' }}
     runs-on: ubuntu-latest
     timeout-minutes: 180
     strategy:
