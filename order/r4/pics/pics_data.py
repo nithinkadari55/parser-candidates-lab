@@ -59,14 +59,17 @@ def save(pil, label, src, group, split=None):
                 "split": split or split_of(f"{src}:{group}")})
 
 
-def get(url, dst, tries=8):
+def get(url, dst, tries=8, budget_s=None):
     """download with retries and HTTP Range resume (the CVIT server drops long transfers)"""
     import time
     os.makedirs(os.path.dirname(dst), exist_ok=True)
     if os.path.exists(dst):
         return dst
     part = dst + ".part"
+    t0 = time.time()
     for k in range(tries):
+        if budget_s and time.time() - t0 > budget_s:
+            break
         have = os.path.getsize(part) if os.path.exists(part) else 0
         try:
             req = urllib.request.Request(url, headers={"User-Agent": "ci-eval", **({"Range": f"bytes={have}-"} if have else {})})
@@ -79,6 +82,8 @@ def get(url, dst, tries=8):
                         if not b:
                             break
                         f.write(b)
+                        if budget_s and time.time() - t0 > budget_s:
+                            raise TimeoutError(f"time budget {budget_s} s used up")
             if total is None or os.path.getsize(part) >= int(total) + (have if mode == "ab" else 0):
                 os.replace(part, dst)
                 return dst
@@ -91,7 +96,7 @@ def get(url, dst, tries=8):
 def docfigure():
     from PIL import Image
     z = zipfile.ZipFile(get("https://cvit.iiit.ac.in/usodi/img/projects/classification/Docfig/DocFigure_dataset.zip",
-                            os.path.join(TMP, "docfig.zip")))
+                            os.path.join(TMP, "docfig.zip"), budget_s=1500))
     names = z.namelist()
     print("docfigure entries", len(names), names[:12])
     imgs = {os.path.basename(n): n for n in names if n.lower().endswith((".png", ".jpg", ".jpeg", ".gif", ".bmp"))}
