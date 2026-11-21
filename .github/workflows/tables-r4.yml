@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       parts:
-        description: "comma list of sel,miss,xpage,layout (report always runs)"
+        description: "comma list of sel,miss,xpage,layout,pp (report always runs)"
         default: "sel,miss,xpage,layout"
       limit:
         description: "smoke test: only the first N items per set/shard (empty = all)"
@@ -371,6 +371,90 @@ jobs:
           name: r4lay-${{ matrix.ds }}-${{ matrix.shard }}
           path: tables/work/out/r4/rfdetr-*.jsonl
 
+  pp_run:
+    if: ${{ contains(inputs.parts, 'pp') && inputs.reuse_run == '' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 240
+    strategy:
+      fail-fast: false
+      max-parallel: 10
+      matrix:
+        include:
+          - {ds: dln, shard: 0, n: 6}
+          - {ds: dln, shard: 1, n: 6}
+          - {ds: dln, shard: 2, n: 6}
+          - {ds: dln, shard: 3, n: 6}
+          - {ds: dln, shard: 4, n: 6}
+          - {ds: dln, shard: 5, n: 6}
+          - {ds: odb, shard: 0, n: 2}
+          - {ds: odb, shard: 1, n: 2}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install
+        run: |
+          pip install -r tables/requirements.txt
+          pip uninstall -y opencv-python opencv-python-headless || true
+          pip install opencv-python-headless==5.1.0.95
+      - if: matrix.ds == 'odb'
+        id: odb
+        uses: actions/cache/restore@v4
+        with:
+          path: /home/runner/odb
+          key: odb-english-v1
+      - if: matrix.ds == 'odb' && steps.odb.outputs.cache-hit != 'true'
+        working-directory: tables/src
+        run: python r3_detect.py fetch_odb
+      - name: PP-DocLayout_plus-L (ONNX Runtime, default threads as heron)
+        working-directory: tables/r4
+        run: nproc; python r4_pp.py run ${{ matrix.ds }} ${{ matrix.shard }} ${{ matrix.n }}; rm -rf ~/dln
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: r4pp-${{ matrix.ds }}-${{ matrix.shard }}
+          path: tables/work/out/r4/ppplus-*.jsonl
+
+  pp_parity:
+    if: ${{ contains(inputs.parts, 'pp') && inputs.reuse_run == '' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install (native Paddle path + ONNX path)
+        run: |
+          pip install -r tables/requirements.txt
+          pip install paddlepaddle==3.2.2 paddleocr==3.7.0 paddlex==3.7.2
+          pip uninstall -y opencv-python opencv-python-headless opencv-contrib-python || true
+          pip install opencv-python-headless==5.1.0.95
+          pip list 2>/dev/null | grep -i -E "^(paddle|onnxruntime|numpy|opencv)"
+      - id: odb
+        uses: actions/cache/restore@v4
+        with:
+          path: /home/runner/odb
+          key: odb-english-v1
+      - if: steps.odb.outputs.cache-hit != 'true'
+        working-directory: tables/src
+        run: python r3_detect.py fetch_odb
+      - name: Parity on 40 pages
+        working-directory: tables/r4
+        run: python r4_pp.py parity 40
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: r4pp-parity
+          path: tables/work/out/r4/pp_parity.json
+
   layout_eval:
     needs: layout_run
     if: ${{ always() && contains(inputs.parts, 'layout') }}
@@ -413,8 +497,51 @@ jobs:
           name: r4-layout
           path: tables/work/out/r4/
 
+  pp_eval:
+    needs: [pp_run, pp_parity]
+    if: ${{ always() && contains(inputs.parts, 'pp') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    permissions:
+      actions: read
+      contents: read
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install numpy==2.4.6 scipy==1.16.3 huggingface_hub==0.35.3
+      - uses: actions/download-artifact@v4
+        if: ${{ inputs.reuse_run == '' }}
+        with:
+          pattern: r4pp-*
+          path: pp
+      - name: PP detections of an earlier run
+        if: ${{ inputs.reuse_run != '' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh run download ${{ inputs.reuse_run }} -R ${{ github.repository }} -p "r4pp-*" -D pp
+      - name: Heron INT8 + GT (run 44477997398), YOLOX-L (run 44689850800), RF-DETR-Large (run 44880415246), OmniDocBench.json
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh run download 44477997398 -R ${{ github.repository }} -p "layout-heron_int8-*" -p "layout-heron-*" -D heron
+          gh run download 44689850800 -R ${{ github.repository }} -p "r3det-yolox_l-*" -D r3det
+          gh run download 44880415246 -R ${{ github.repository }} -p "r4lay-*" -D rf
+          python -c "from huggingface_hub import hf_hub_download as h; import os; h('opendatalab/OmniDocBench', 'OmniDocBench.json', repo_type='dataset', local_dir=os.path.expanduser('~/odb'))"
+      - working-directory: tables/r4
+        run: python r4_pp_eval.py ../../pp ../../heron ../../r3det ../../rf ~/odb/OmniDocBench.json $(ls ../../pp/r4pp-parity/pp_parity.json 2>/dev/null) | tail -n 100
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: r4-pp
+          path: tables/work/out/r4/
+
   report:
-    needs: [sel_eval, miss_eval, xpage, layout_eval]
+    needs: [sel_eval, miss_eval, xpage, layout_eval, pp_eval]
     if: ${{ always() }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
