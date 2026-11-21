@@ -254,7 +254,8 @@ def ds_dln(shard, n, art, an, f):
             if pid is None or pid not in gt: nojoin += 1; continue
             g = gt[pid]; hr = det[pid]
             gts = [x[1:5] for x in g["gt"] if x[0] == "Table"]; gpics = []
-            ref = [c["bbox"] for c in (d["pdf_cells"][k] or [])[:200] if c and c.get("bbox")]
+            flat = [c for grp in (d["pdf_cells"][k] or []) for c in (grp if isinstance(grp, list) else [grp])]
+            ref = [c["bbox"] for c in flat[:200] if isinstance(c, dict) and c.get("bbox")]
             yield pid, d["pdf"][k], 0, g["W"], g["H"], gts, hr["dets"], gpics, ref, dict(doc_category=g.get("doc_category"), heron_sec=hr.get("sec"))
             cnt += 1
             if LIMIT and cnt >= LIMIT: return

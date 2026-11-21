@@ -4,13 +4,16 @@ on:
   workflow_dispatch:
     inputs:
       parts:
-        description: "comma list of sel,miss,xpage"
-        default: "sel,miss,xpage"
+        description: "comma list of sel,miss,xpage,layout (report always runs)"
+        default: "sel,miss,xpage,layout"
       limit:
         description: "smoke test: only the first N items per set/shard (empty = all)"
         default: ""
       reuse_run:
-        description: "evaluation only: take the heavy r4sel-*/r4miss-* artifacts from this earlier run ID"
+        description: "evaluation only: take the heavy r4sel-*/r4miss-*/r4lay-* artifacts from this earlier run ID"
+        default: ""
+      extra_runs:
+        description: "report: evaluated artifacts from earlier runs, as runid:pattern pairs separated by spaces (e.g. 123:r4-sel)"
         default: ""
 
 env:
@@ -317,11 +320,107 @@ jobs:
           name: r4-xpage
           path: tables/work/out/r4/
 
+  layout_run:
+    if: ${{ contains(inputs.parts, 'layout') && inputs.reuse_run == '' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 300
+    strategy:
+      fail-fast: false
+      max-parallel: 10
+      matrix:
+        include:
+          - {ds: dln, shard: 0, n: 6}
+          - {ds: dln, shard: 1, n: 6}
+          - {ds: dln, shard: 2, n: 6}
+          - {ds: dln, shard: 3, n: 6}
+          - {ds: dln, shard: 4, n: 6}
+          - {ds: dln, shard: 5, n: 6}
+          - {ds: odb, shard: 0, n: 2}
+          - {ds: odb, shard: 1, n: 2}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install
+        run: |
+          pip install -r tables/requirements.txt
+          pip install torch==2.15.0 torchvision==0.29.2 --index-url https://download.pytorch.org/whl/cpu
+          pip install transformers==5.22.2 --extra-index-url https://download.pytorch.org/whl/cpu
+          pip uninstall -y opencv-python opencv-python-headless || true
+          pip install opencv-python-headless==5.1.0.95
+          pip list 2>/dev/null | grep -i -E "^(torch|torchvision|transformers|numpy|pillow) "
+      - if: matrix.ds == 'odb'
+        id: odb
+        uses: actions/cache/restore@v4
+        with:
+          path: /home/runner/odb
+          key: odb-english-v1
+      - if: matrix.ds == 'odb' && steps.odb.outputs.cache-hit != 'true'
+        working-directory: tables/src
+        run: python r3_detect.py fetch_odb
+      - name: RF-DETR-Large
+        working-directory: tables/r4
+        run: nproc; python r4_layout.py ${{ matrix.ds }} ${{ matrix.shard }} ${{ matrix.n }}; rm -rf ~/dln
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: r4lay-${{ matrix.ds }}-${{ matrix.shard }}
+          path: tables/work/out/r4/rfdetr-*.jsonl
+
+  layout_eval:
+    needs: layout_run
+    if: ${{ always() && contains(inputs.parts, 'layout') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    permissions:
+      actions: read
+      contents: read
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install numpy==2.4.6 scipy==1.16.3 huggingface_hub==0.35.3
+      - uses: actions/download-artifact@v4
+        if: ${{ inputs.reuse_run == '' }}
+        with:
+          pattern: r4lay-*
+          path: rf
+      - name: RF-DETR detections of an earlier r4 run
+        if: ${{ inputs.reuse_run != '' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh run download ${{ inputs.reuse_run }} -R ${{ github.repository }} -p "r4lay-*" -D rf
+      - name: Heron INT8 + GT (order run 44477997398), YOLOX-L (round-3 run 44689850800), OmniDocBench.json
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh run download 44477997398 -R ${{ github.repository }} -p "layout-heron_int8-*" -p "layout-heron-*" -D heron
+          gh run download 44689850800 -R ${{ github.repository }} -p "r3det-yolox_l-*" -D r3det
+          python -c "from huggingface_hub import hf_hub_download as h; import os; h('opendatalab/OmniDocBench', 'OmniDocBench.json', repo_type='dataset', local_dir=os.path.expanduser('~/odb'))"
+      - working-directory: tables/r4
+        run: python r4_layout_eval.py ../../rf ../../heron ../../r3det ~/odb/OmniDocBench.json | tail -n 80
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: r4-layout
+          path: tables/work/out/r4/
+
   report:
-    needs: [sel_eval, miss_eval, xpage]
+    needs: [sel_eval, miss_eval, xpage, layout_eval]
     if: ${{ always() }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    permissions:
+      actions: read
+      contents: read
     defaults:
       run:
         shell: bash
@@ -331,9 +430,18 @@ jobs:
         with:
           python-version: "3.11"
       - uses: actions/download-artifact@v4
+        continue-on-error: true
         with:
           pattern: r4-*
           path: rep
+      - name: Evaluated artifacts of earlier runs
+        if: ${{ inputs.extra_runs != '' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EXTRA: ${{ inputs.extra_runs }}
+        run: |
+          for e in $EXTRA; do id=${e%%:*}; pat=${e#*:}; rm -rf "rep/$pat"; gh run download "$id" -R ${{ github.repository }} -n "$pat" -D "rep/$pat"; done
+          ls -R rep | head -40
       - run: |
           python tables/r4/r4_report.py rep ${{ github.run_id }} > /dev/null
           cat rep/REPORT.md >> "$GITHUB_STEP_SUMMARY"
