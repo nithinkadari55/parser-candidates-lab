@@ -1,0 +1,212 @@
+name: visual-r4
+
+# Round 4: gap 13 (newspaper / magazine / sidebar reading order) and gap 10 (picture classification).
+# At most 8 jobs of this workflow run at once (4 order shards + prep + probe, then 3 picture jobs).
+on:
+  workflow_dispatch:
+    inputs:
+      ro_run:
+        description: "order run with ro-*-logic-* artifacts (rects, decorations)"
+        default: "44483268299"
+      layout_run:
+        description: "order run with layout-heron_int8-* artifacts"
+        default: "44477997398"
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: visual-r4-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  ODB_DIR: /home/runner/odb
+  DRD_DIR: /home/runner/drdoc
+  DLN_DIR: /home/runner/dln
+  T6_ART: art
+  PYTHONUNBUFFERED: "1"
+  HF_HUB_DISABLE_PROGRESS_BARS: "1"
+  RO_RUN: ${{ inputs.ro_run || '44483268299' }}
+  LAYOUT_RUN: ${{ inputs.layout_run || '44477997398' }}
+
+jobs:
+  order-r4:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      max-parallel: 4
+      matrix:
+        shard: [0, 1, 2, 3]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install -r order/requirements-core.txt
+      - uses: actions/cache/restore@v4
+        with:
+          path: /home/runner/odb
+          key: odb-english-v1
+          fail-on-cache-miss: true
+      - uses: actions/cache/restore@v4
+        with:
+          path: /home/runner/drdoc
+          key: drdoc-dev-7a2bc38-v1
+          fail-on-cache-miss: true
+      - uses: actions/download-artifact@v4
+        with:
+          path: art
+          pattern: ro-*-logic-*
+          run-id: ${{ env.RO_RUN }}
+          github-token: ${{ github.token }}
+      - uses: actions/download-artifact@v4
+        with:
+          path: art
+          pattern: layout-heron_int8-*
+          run-id: ${{ env.LAYOUT_RUN }}
+          github-token: ${{ github.token }}
+      - run: mkdir -p out && python order/r4/eval_r4.py ${{ matrix.shard }} 4 out/r4-${{ matrix.shard }}.jsonl
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: r4-order-${{ matrix.shard }}
+          path: out/
+
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install huggingface_hub==0.35.3
+      - name: American Stories - does it carry region boxes with a reading order?
+        run: |
+          mkdir -p out
+          python - <<'EOF'
+          from huggingface_hub import HfApi, hf_hub_download
+          api = HfApi()
+          repo = "dell-research-harvard/AmericanStories"
+          info = api.dataset_info(repo)
+          files = api.list_repo_files(repo, repo_type="dataset")
+          readme = open(hf_hub_download(repo, "README.md", repo_type="dataset")).read()
+          low = readme.lower()
+          keys = [k for k in ("bbox", "bounding", "coordinates", "reading order", "layout", "legibility", "hand-label", "article_id") if k in low]
+          lic = (info.card_data.to_dict() if info.card_data else {}).get("license")
+          exts = sorted({f.rsplit(".", 1)[-1] for f in files if "." in f})
+          txt = (f"Repo {repo} at {info.sha[:10]}, licence {lic}; {len(files)} files, extensions {exts}. "
+                 f"README mentions: {keys}. ")
+          usable = any(k in keys for k in ("bbox", "bounding", "coordinates"))
+          txt += ("The release lists region-level fields, but no per-page region reading order is documented; the "
+                  "10 hand-labelled evaluation scans of the paper are not part of the release, so it is not used "
+                  "as order ground truth." if usable else
+                  "The release holds article text per scan (pipeline output) without region boxes or a reading "
+                  "order, and the 10 hand-labelled evaluation scans are not released, so it cannot serve as "
+                  "reading-order ground truth; not used.")
+          open("out/american_stories_probe.txt", "w").write(txt + "\n")
+          print(txt)
+          EOF
+      - uses: actions/upload-artifact@v4
+        with:
+          name: r4-probe
+          path: out/
+
+  prep-pics:
+    runs-on: ubuntu-latest
+    timeout-minutes: 150
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install numpy==2.4.6 pillow==13.0.0 pyarrow==26.0.1 huggingface_hub==0.35.3
+      - id: c
+        uses: actions/cache@v4
+        with:
+          path: /home/runner/pics
+          key: pics-v1-${{ hashFiles('order/r4/pics/pics_data.py', 'order/layout/dln.py') }}
+      - if: steps.c.outputs.cache-hit != 'true'
+        run: python order/r4/pics/pics_data.py /home/runner/pics && rm -rf /home/runner/pics-tmp /home/runner/dln
+      - run: |
+          mkdir -p out
+          python - <<'EOF'
+          import json, collections
+          d = json.load(open("/home/runner/pics/manifest.json"))
+          c = collections.Counter(f"{m['split']}:{m['label']}" for m in d["items"])
+          json.dump({"status": d["status"], "counts": dict(sorted(c.items()))}, open("out/pics-manifest-summary.json", "w"), indent=1)
+          print(json.dumps(d["status"], indent=1)); print(dict(sorted(c.items())))
+          EOF
+          du -sh /home/runner/pics
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pics-manifest
+          path: out/
+
+  pics:
+    needs: [prep-pics, order-r4]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    strategy:
+      fail-fast: false
+      max-parallel: 3
+      matrix:
+        kind: [mnv3, dinov2, docling]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: |
+          pip install numpy==2.4.6 pillow==13.0.0 onnxruntime==1.32.0 onnx==1.17.0 scikit-learn==1.7.2 scipy==1.17.1
+          if [ "${{ matrix.kind }}" != "docling" ]; then
+            pip install torch==2.15.0 torchvision==0.29.2 --index-url https://download.pytorch.org/whl/cpu
+            pip install timm==1.0.15 transformers==4.57.1 huggingface_hub==0.35.3
+          fi
+      - uses: actions/cache/restore@v4
+        with:
+          path: /home/runner/pics
+          key: pics-v1-${{ hashFiles('order/r4/pics/pics_data.py', 'order/layout/dln.py') }}
+          fail-on-cache-miss: true
+      - run: |
+          mkdir -p out
+          if [ "${{ matrix.kind }}" = "docling" ]; then
+            python order/r4/pics/pics_docling.py /home/runner/pics out/pics-docling.json
+          else
+            python order/r4/pics/pics_train.py ${{ matrix.kind }} /home/runner/pics out/pics-${{ matrix.kind }}.json
+          fi
+          ls -la out
+          rm -f out/*.onnx
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: pics-${{ matrix.kind }}
+          path: out/
+
+  report:
+    needs: [order-r4, probe, prep-pics, pics]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install scipy==1.17.1 numpy==2.4.6
+      - uses: actions/download-artifact@v4
+        with:
+          path: res
+      - run: |
+          mkdir -p out
+          python order/r4/agg_r4.py res out/order_r4.md out/order_r4.json || echo "order aggregation failed"
+          python order/r4/pics/pics_agg.py res out/pics.md || echo "pics aggregation failed"
+          cat out/order_r4.md out/pics.md > out/REPORT_draft.md 2>/dev/null || true
+          cat out/REPORT_draft.md >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: visual-r4-report
+          path: out/
