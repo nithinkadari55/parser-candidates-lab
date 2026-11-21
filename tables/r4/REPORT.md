@@ -1,8 +1,8 @@
-# Round 4 table tests (gaps 15, 14, 6, RF-DETR-Large layout)
+# Round 4 table tests (gaps 15, 14, 6, RF-DETR-Large and PP-DocLayout_plus-L layout)
 
-Runs (nithinkadari55/parser-candidates-lab, workflow tables-r4.yml): gap 15 and gap 6 from run 44879805191; gap 14 and RF-DETR-Large from run 44880415246 (the gap 14 DocLayNet shards of 44879805191 crashed on a parser bug, fixed in 1f9e629 and rerun); this report was assembled by run 44897526456. All model work ran on 4-vCPU ubuntu-latest runners; datasets were downloaded inside the jobs and never committed or uploaded.
+Runs (nithinkadari55/parser-candidates-lab, workflow tables-r4.yml): gap 15 and gap 6 from run 44879805191; gap 14 and RF-DETR-Large from run 44880415246 (the gap 14 DocLayNet shards of 44879805191 crashed on a parser bug, fixed in 1f9e629 and rerun); PP-DocLayout_plus-L from run 44905325277 (detections), 44905597422 (ONNX vs native parity) and 44906925432 (evaluation); the PP section was assembled by report run 44907206361. All model work ran on 4-vCPU ubuntu-latest runners; datasets were downloaded inside the jobs and never committed or uploaded.
 
-Notes: (1) heron INT8 counts 'Table' and 'Document Index' as tables here, so its DocLayNet recall is 0.862 with 331 misses (round 3 counted 'Table' only: 0.839, 385 misses). (2) RF-DETR-Large was fine-tuned on DocLayNet v1.2 train, so DocLayNet test is in-domain for it; OmniDocBench is the out-of-domain check. (3) RF-DETR ran in torch fp32 with torch's default 2 threads; heron INT8 ran in ONNX Runtime with its default threads, so the ms/page are not like for like. (4) Gap 14 bar: precision of added regions >= 0.5 with <= 5 false tables / 100 pages. No train-free proposer (SPARTAN, vector rules) meets it. RF-DETR-Large >= 0.5 in uncovered regions meets it on DocLayNet only (0.561 precision, 0.9 false / 100 pages, 55 of 331 misses), not on OmniDocBench (0.043).
+Notes: (1) heron INT8 counts 'Table' and 'Document Index' as tables here, so its DocLayNet recall is 0.862 with 331 misses (round 3 counted 'Table' only: 0.839, 385 misses). (2) RF-DETR-Large was fine-tuned on DocLayNet v1.2 train, so DocLayNet test is in-domain for it; OmniDocBench is the out-of-domain check. (3) RF-DETR ran in torch fp32 with torch's default 2 threads; heron INT8 ran in ONNX Runtime with its default threads, so the ms/page are not like for like. (4) Gap 14 bar: precision of added regions >= 0.5 with <= 5 false tables / 100 pages. No train-free proposer (SPARTAN, vector rules) meets it. RF-DETR-Large >= 0.5 in uncovered regions meets it on DocLayNet only (0.561 precision, 0.9 false / 100 pages, 55 of 331 misses), not on OmniDocBench (0.043). (5) PP-DocLayout_plus-L verdict: do not adopt. On OmniDocBench (the deciding set) its shared-class mAP50-95 ties heron INT8 (0.453 vs 0.458) but its paired per-page F1 is lower (-0.067 [-0.085, -0.049]), mostly from formula false positives (precision 0.14) and exam pages (-0.31); it wins on colorful textbooks (+0.17) and magazines (+0.05). On DocLayNet it is far behind (0.320 vs 0.678; F1 -0.176), partly from label-convention differences. Its missed-table arm on OmniDocBench recovers 10 of 43 heron misses but at precision 0.27. (6) The DocLayNet ms/page of PP (999) and the OmniDocBench one (407) come from different runner hosts for a fixed 800x800 input; the parity job measured 446 ms ONNX vs 672 ms native Paddle on one host. Use about 0.4-0.45 s/page, vs about 0.33 s for heron INT8.
 
 ## Verdicts
 
@@ -10,6 +10,7 @@ Notes: (1) heron INT8 counts 'Table' and 'Document Index' as tables here, so its
 - **Gap 14 (missed tables): no proposer reaches precision >= 0.5 with <= 5 false tables / 100 pages; do not add it to the pipeline as is** (see the per-variant table).
 - **Gap 6 (cross-page tables):** our rule set link P 0.991 / R 0.476, false-merge rate 0.0033, exact multi-part assembly 0.475; Table Stitcher port P 0.974 / R 0.625; Textract rules P 0.975 / R 0.134. Region splitting: {"neg": 3536, "pos": 137, "pos_split": 125, "pos_exact": 62, "pos_wrongcut": 0, "neg_split": 241}.
 - **Layout: RF-DETR-Large (test only, not a replacement):** dln: mean-class mAP50-95 RF-DETR 0.750 vs heron INT8 0.688, paired page F1 diff +0.0286 [+0.0245, +0.0330], 805 vs 317 ms/page; missed tables (uncovered regions, >= 0.5): RF-DETR recovers 55 of 331 (precision 0.561, 0.9 false/100 pages), YOLOX-L 36 (precision 0.371, 1.2 false/100 pages); odb: mean-class mAP50-95 RF-DETR 0.355 vs heron INT8 0.458, paired page F1 diff -0.0536 [-0.0696, -0.0388], 816 vs 334 ms/page; missed tables (uncovered regions, >= 0.5): RF-DETR recovers 1 of 43 (precision 0.043, 3.0 false/100 pages), YOLOX-L 2 (precision 0.091, 2.7 false/100 pages).
+- **Layout: PP-DocLayout_plus-L (test only, OmniDocBench decides):** dln: shared-class mAP50-95 PP 0.320 vs heron 0.678, paired page F1 diff -0.1758 [-0.1829, -0.1683], 999 vs 317 ms/page; missed tables (uncovered, >= 0.5): 16 of 331 recovered, precision 0.195, 1.3 false/100 pages; odb: shared-class mAP50-95 PP 0.453 vs heron 0.458, paired page F1 diff -0.0668 [-0.0849, -0.0492], 407 vs 334 ms/page; missed tables (uncovered, >= 0.5): 10 of 43 recovered, precision 0.270, 3.6 false/100 pages.
 
 ## Sources checked from the actual files
 
@@ -24,6 +25,7 @@ Notes: (1) heron INT8 counts 'Table' and 'Document Index' as tables here, so its
 - SCI-3000: Zenodo 8165783, open access; record licence CC BY 4.0 while the LICENSE file inside the zip says CC BY-SA 4.0. Both allow research use. Read by HTTP range requests (no full download).
 - PubTables-v2 Full Documents test: HF kensho/PubTables-v2, CDLA-Permissive-2.0.
 - RF-DETR-Large DocLayNet: HF nie3e/rf-detr-large-doclay @fecf537, model card licence apache-2.0 (no separate LICENSE file in the model repo), base Roboflow/rf-detr-large card apache-2.0, roboflow/rf-detr code Apache-2.0; trained on DocLayNet v1.2 (CDLA-Permissive-1.0). Run through transformers 5.22.2 RfDetrForObjectDetection (code read: sigmoid + top-k post-processing, no NMS).
+- PP-DocLayout_plus-L: HF PaddlePaddle/PP-DocLayout_plus-L_onnx @feb7461 (inference.onnx) and PaddlePaddle/PP-DocLayout_plus-L @aa52b85 (native weights): model card tag apache-2.0, no LICENSE file in either repo; PaddleOCR and PaddleX code Apache-2.0. Pre/post-processing from inference.yml and PaddleX 3.7.2 DetPostProcess; ONNX parity with native paddlepaddle 3.2.2 / paddleocr 3.7.0 / paddlex 3.7.2: 1058/1058 boxes.
 
 ## Gap 15: table selector on real PDF words (pdfplumber words re-extracted from the source PDFs)
 Value per table: TEDS-Struct (GriTS-Top where the grid exceeds 1200 cells). Selector = round-3 features + XGBoost; 'retrained' = 5-fold GroupKFold by document on these 6476 tables only; 'frozen r3' = the round-3 selector trained on the 8250 round-3 tables (answer-key words for PubTabNet/FinTabNet/PT1M) and applied unchanged. CI = 95% bootstrap over documents.
@@ -319,3 +321,92 @@ CPU ms per page (4-vCPU runner): RF-DETR p50 816 / mean 690; heron INT8 p50 334 
 | YOLOX-L >= 0.7 | uncovered regions | 1.5 | 1 of 43 | 0.023 | 0.091 | 1.4 | 0.828 |
 | YOLOX-L >= 0.7 | pages without a heron table | 1.1 | 1 of 43 | 0.023 | 0.125 | 0.9 | 0.828 |
 
+## Layout: PP-DocLayout_plus-L vs heron INT8
+Model PaddlePaddle/PP-DocLayout_plus-L_onnx @feb7461 (inference.onnx, 130 MB; model card tag apache-2.0, no LICENSE file in either HF repo; PaddleOCR / PaddleX code Apache-2.0), ONNX Runtime CPU with the same default thread settings as heron INT8; pre/post-processing per inference.yml and PaddleX 3.7.2 DetPostProcess (800x800 cubic resize, /255, threshold, no layout NMS, large-image filter). Same pages, GT and scoring as the RF-DETR-Large section. Fixed label map: doc_title->Title, paragraph_title->Section-header, image+chart->Picture, formula->Formula, table->Table, header->Page-header, footer->Page-footer, footnote->Footnote, figure_title->Caption, text->Text; all other PP labels dropped (abstract, content, reference, reference_content, aside_text, algorithm, number, formula_number, seal). PP has no list class: List-item is not scored for it; 'Text+List-item' merges both classes for every model and GT.
+
+**ONNX vs native Paddle parity** (paddlepaddle 3.2.2, paddleocr 3.7.0, paddlex 3.7.2, same weights, threshold 0.3, 40 pages): 1058 of 1058 native boxes matched by an ONNX box of the same label at IoU >= 0.95 (100.0%; 100.0% of 1058 ONNX boxes), mean |score difference| 7.778744165748639e-07, max 0.00012236833572387695, mean IoU 0.9999774233345032; native 672 ms/page vs ONNX 446 ms/page.
+
+### DocLayNet test: 4999 pages
+| class | GT | PP-DocLayout_plus-L mAP50-95 | heron INT8 mAP50-95 | RF-DETR-Large mAP50-95 | PP-DocLayout_plus-L mAP50 | heron INT8 mAP50 | RF-DETR-Large mAP50 | PP-DocLayout_plus-L R / P | heron INT8 R / P | RF-DETR-Large R / P |
+|---|---|---|---|---|---|---|---|---|---|---|
+| Table | 2394 | 0.764 | 0.843 | 0.851 | 0.831 | 0.884 | 0.905 | 0.787 / 0.860 | 0.862 / 0.858 | 0.855 / 0.913 |
+| Picture | 3534 | 0.507 | 0.781 | 0.736 | 0.591 | 0.856 | 0.828 | 0.526 / 0.685 | 0.896 / 0.692 | 0.803 / 0.793 |
+| Text | 29940 | 0.611 | 0.836 | 0.854 | 0.816 | 0.935 | 0.943 | 0.857 / 0.697 | 0.917 / 0.780 | 0.901 / 0.924 |
+| Title | 335 | 0.153 | 0.341 | 0.818 | 0.293 | 0.424 | 0.911 | 0.409 / 0.223 | 0.304 / 0.699 | 0.860 / 0.855 |
+| Section-header | 8550 | 0.248 | 0.630 | 0.705 | 0.805 | 0.918 | 0.915 | 0.713 / 0.803 | 0.917 / 0.775 | 0.870 / 0.884 |
+| Formula | 1966 | 0.181 | 0.645 | 0.646 | 0.454 | 0.916 | 0.935 | 0.616 / 0.089 | 0.959 / 0.842 | 0.928 / 0.896 |
+| Caption | 1543 | 0.374 | 0.734 | 0.721 | 0.749 | 0.903 | 0.862 | 0.778 / 0.490 | 0.892 / 0.759 | 0.782 / 0.854 |
+| Footnote | 387 | 0.175 | 0.726 | 0.723 | 0.364 | 0.877 | 0.870 | 0.305 / 0.534 | 0.858 / 0.695 | 0.786 / 0.921 |
+| Page-header | 3366 | 0.116 | 0.714 | 0.752 | 0.429 | 0.940 | 0.935 | 0.508 / 0.604 | 0.958 / 0.778 | 0.863 / 0.893 |
+| Page-footer | 3994 | 0.068 | 0.529 | 0.626 | 0.293 | 0.882 | 0.930 | 0.292 / 0.533 | 0.916 / 0.738 | 0.915 / 0.921 |
+| Text+List-item | 40462 | 0.615 | 0.837 | 0.853 | 0.877 | 0.949 | 0.950 | 0.808 / 0.887 | 0.938 / 0.803 | 0.916 / 0.938 |
+| Text (PP extended map) | 29940 | 0.600 | - | - | 0.798 | - | - | 0.864 / 0.649 | - | - |
+| **shared-class mean** | | **0.320** | **0.678** | **0.743** | **0.563** | **0.854** | **0.903** |  |  |  |
+
+Coverage: PP-DocLayout_plus-L covers 10 of the 11 DocLayNet classes; List-item (10522 GT boxes) has no PP class and is excluded from its shared-class mean (PP predicts list items as text, which counts against its Text precision; see the Text+List-item row).
+PP detections (score >= 0.5) under dropped labels: {'number': 4409, 'reference_content': 2121, 'formula_number': 1584, 'aside_text': 491, 'reference': 173, 'abstract': 86, 'content': 80, 'algorithm': 52, 'seal': 1}.
+
+Paired per-page F1 (shared classes, Text+List-item merged, score >= 0.5, IoU 0.5): PP 0.6876 vs heron 0.8635; difference -0.1758 [95% bootstrap CI -0.1829, -0.1683], Wilcoxon p 0; PP better on 900 pages, worse on 3714. RF-DETR-Large on the same basis: 0.8917.
+CPU ms per page (4-vCPU runner): PP-DocLayout_plus-L p50 999 / mean 958; heron INT8 p50 317 / mean 349; RF-DETR-Large p50 805 / mean 744.
+
+**Missed-table arm (dln)**: 4999 pages; heron recall@.5 0.862, misses 331
+| second detector | where | added / 100 pages | misses recovered @.5 | inc. recall | precision of added | false tables / 100 pages | heron+added recall |
+|---|---|---|---|---|---|---|---|
+| PP-DocLayout_plus-L >= 0.5 | uncovered regions | 1.6 | 16 of 331 | 0.048 | 0.195 | 1.3 | 0.868 |
+| PP-DocLayout_plus-L >= 0.5 | pages without a heron table | 1.1 | 8 of 331 | 0.024 | 0.148 | 0.9 | 0.865 |
+| PP-DocLayout_plus-L >= 0.7 | uncovered regions | 1.1 | 12 of 331 | 0.036 | 0.222 | 0.8 | 0.867 |
+| PP-DocLayout_plus-L >= 0.7 | pages without a heron table | 0.7 | 5 of 331 | 0.015 | 0.147 | 0.6 | 0.864 |
+| RF-DETR-Large >= 0.5 | uncovered regions | 2.0 | 55 of 331 | 0.166 | 0.561 | 0.9 | 0.885 |
+| RF-DETR-Large >= 0.5 | pages without a heron table | 1.1 | 32 of 331 | 0.097 | 0.571 | 0.5 | 0.875 |
+| RF-DETR-Large >= 0.7 | uncovered regions | 1.3 | 43 of 331 | 0.130 | 0.662 | 0.4 | 0.880 |
+| RF-DETR-Large >= 0.7 | pages without a heron table | 0.8 | 26 of 331 | 0.079 | 0.684 | 0.2 | 0.873 |
+| YOLOX-L >= 0.5 | uncovered regions | 1.9 | 36 of 331 | 0.109 | 0.371 | 1.2 | 0.877 |
+| YOLOX-L >= 0.5 | pages without a heron table | 1.3 | 22 of 331 | 0.066 | 0.344 | 0.8 | 0.871 |
+| YOLOX-L >= 0.7 | uncovered regions | 0.8 | 15 of 331 | 0.045 | 0.357 | 0.5 | 0.868 |
+| YOLOX-L >= 0.7 | pages without a heron table | 0.5 | 12 of 331 | 0.036 | 0.444 | 0.3 | 0.867 |
+
+### OmniDocBench English: 740 pages
+| class | GT | PP-DocLayout_plus-L mAP50-95 | heron INT8 mAP50-95 | RF-DETR-Large mAP50-95 | PP-DocLayout_plus-L mAP50 | heron INT8 mAP50 | RF-DETR-Large mAP50 | PP-DocLayout_plus-L R / P | heron INT8 R / P | RF-DETR-Large R / P |
+|---|---|---|---|---|---|---|---|---|---|---|
+| Table | 244 | 0.785 | 0.802 | 0.617 | 0.822 | 0.840 | 0.670 | 0.795 / 0.833 | 0.820 / 0.901 | 0.590 / 0.847 |
+| Picture | 487 | 0.730 | 0.727 | 0.594 | 0.805 | 0.788 | 0.674 | 0.795 / 0.680 | 0.858 / 0.458 | 0.702 / 0.612 |
+| Text | 7309 | 0.710 | 0.721 | 0.568 | 0.848 | 0.831 | 0.721 | 0.827 / 0.800 | 0.902 / 0.648 | 0.693 / 0.777 |
+| Title | 1567 | 0.361 | 0.449 | 0.344 | 0.661 | 0.702 | 0.586 | 0.595 / 0.765 | 0.736 / 0.643 | 0.530 / 0.724 |
+| Formula | 1660 | 0.278 | 0.365 | 0.301 | 0.436 | 0.581 | 0.510 | 0.578 / 0.143 | 0.564 / 0.716 | 0.453 / 0.776 |
+| Caption | 727 | 0.264 | 0.299 | 0.171 | 0.424 | 0.413 | 0.262 | 0.395 / 0.723 | 0.377 / 0.755 | 0.164 / 0.726 |
+| Footnote | 223 | 0.205 | 0.137 | 0.095 | 0.311 | 0.209 | 0.151 | 0.143 / 0.780 | 0.184 / 0.373 | 0.103 / 0.523 |
+| Page-header | 699 | 0.351 | 0.336 | 0.251 | 0.835 | 0.710 | 0.585 | 0.763 / 0.864 | 0.810 / 0.590 | 0.625 / 0.643 |
+| Page-footer | 264 | 0.392 | 0.288 | 0.253 | 0.837 | 0.528 | 0.519 | 0.875 / 0.740 | 0.845 / 0.413 | 0.697 / 0.520 |
+| Text (PP extended map) | 7309 | 0.728 | - | - | 0.866 | - | - | 0.866 / 0.775 | - | - |
+| **shared-class mean** | | **0.453** | **0.458** | **0.355** | **0.664** | **0.622** | **0.520** |  |  |  |
+PP detections (score >= 0.5) under dropped labels: {'reference_content': 614, 'number': 545, 'formula_number': 192, 'reference': 35, 'aside_text': 30, 'abstract': 17, 'content': 5, 'algorithm': 2}.
+
+Paired per-page F1 (shared classes, Text+List-item merged, score >= 0.5, IoU 0.5): PP 0.6263 vs heron 0.6931; difference -0.0668 [95% bootstrap CI -0.0849, -0.0492], Wilcoxon p 2.3e-10; PP better on 295 pages, worse on 402. RF-DETR-Large on the same basis: 0.6395.
+CPU ms per page (4-vCPU runner): PP-DocLayout_plus-L p50 407 / mean 430; heron INT8 p50 334 / mean 367; RF-DETR-Large p50 816 / mean 690.
+
+**Per genre (OmniDocBench data_source)** - shared-class mean mAP50-95 and paired page F1 (PP - heron)
+| genre | pages | PP-DocLayout_plus-L mAP50-95 | heron INT8 mAP50-95 | RF-DETR-Large mAP50-95 | PP - heron page F1 [95% CI] |
+|---|---|---|---|---|---|
+| paper | 205 | 0.492 | 0.551 | 0.460 | -0.0978 [-0.1277, -0.0684] |
+| book | 126 | 0.460 | 0.440 | 0.391 | -0.1091 [-0.1466, -0.0705] |
+| exam | 82 | 0.459 | 0.423 | 0.284 | -0.3105 [-0.3646, -0.2555] |
+| slides | 114 | 0.363 | 0.363 | 0.266 | -0.0287 [-0.0771, +0.0113] |
+| newspaper | 77 | 0.398 | 0.427 | 0.230 | +0.0083 [-0.0137, +0.0291] |
+| magazine | 84 | 0.498 | 0.512 | 0.446 | +0.0507 [+0.0251, +0.0793] |
+| colorful_textbook | 51 | 0.480 | 0.378 | 0.318 | +0.1663 [+0.0807, +0.2514] |
+
+**Missed-table arm (odb)**: 740 pages; heron recall@.5 0.824, misses 43
+| second detector | where | added / 100 pages | misses recovered @.5 | inc. recall | precision of added | false tables / 100 pages | heron+added recall |
+|---|---|---|---|---|---|---|---|
+| PP-DocLayout_plus-L >= 0.5 | uncovered regions | 5.0 | 10 of 43 | 0.233 | 0.270 | 3.6 | 0.865 |
+| PP-DocLayout_plus-L >= 0.5 | pages without a heron table | 3.2 | 6 of 43 | 0.140 | 0.250 | 2.4 | 0.848 |
+| PP-DocLayout_plus-L >= 0.7 | uncovered regions | 2.6 | 6 of 43 | 0.140 | 0.316 | 1.8 | 0.848 |
+| PP-DocLayout_plus-L >= 0.7 | pages without a heron table | 1.9 | 5 of 43 | 0.116 | 0.357 | 1.2 | 0.844 |
+| RF-DETR-Large >= 0.5 | uncovered regions | 3.1 | 1 of 43 | 0.023 | 0.043 | 3.0 | 0.828 |
+| RF-DETR-Large >= 0.5 | pages without a heron table | 2.3 | 1 of 43 | 0.023 | 0.059 | 2.2 | 0.828 |
+| RF-DETR-Large >= 0.7 | uncovered regions | 1.1 | 1 of 43 | 0.023 | 0.125 | 0.9 | 0.828 |
+| RF-DETR-Large >= 0.7 | pages without a heron table | 0.8 | 1 of 43 | 0.023 | 0.167 | 0.7 | 0.828 |
+| YOLOX-L >= 0.5 | uncovered regions | 3.0 | 2 of 43 | 0.047 | 0.091 | 2.7 | 0.832 |
+| YOLOX-L >= 0.5 | pages without a heron table | 2.4 | 2 of 43 | 0.047 | 0.111 | 2.2 | 0.832 |
+| YOLOX-L >= 0.7 | uncovered regions | 1.5 | 1 of 43 | 0.023 | 0.091 | 1.4 | 0.828 |
+| YOLOX-L >= 0.7 | pages without a heron table | 1.1 | 1 of 43 | 0.023 | 0.125 | 0.9 | 0.828 |
