@@ -3,7 +3,7 @@ Sources are downloaded inside the job, cropped to JPEG under ~/pics (actions/cac
   DocFigure (CVIT, non-commercial research terms; 28 classes mapped below), ChartX PNGs (InternScience/ChartX),
   AI2D diagrams (lmms-lab/ai2d), Imagenette-160 photos, WebSight v0.1 screenshots (HuggingFaceM4/WebSight,
   CC-BY-4.0), LogoDet-3K logo boxes (axonstan/LogoDet-3K), SignverOD signature boxes (ondrs/signverod,
-  Apache-2.0 card), document stamps (mapo80/stamps, CC-BY-4.0), DocLayNet test Table boxes (CDLA-Permissive-1.0)
+  Apache-2.0 card; its redaction boxes, category 3, also go to "other"), document stamps (mapo80/stamps, CC-BY-4.0), DocLayNet test Table boxes (CDLA-Permissive-1.0)
   and DocLayNet Picture boxes (unlabelled, only for a domain check).
 Splits are by group (paper / chart / company / document / page) so no group is in both train and test.
 usage: pics_data.py OUTDIR"""
@@ -59,18 +59,33 @@ def save(pil, label, src, group, split=None):
                 "split": split or split_of(f"{src}:{group}")})
 
 
-def get(url, dst):
+def get(url, dst, tries=8):
+    """download with retries and HTTP Range resume (the CVIT server drops long transfers)"""
+    import time
     os.makedirs(os.path.dirname(dst), exist_ok=True)
-    if not os.path.exists(dst):
-        req = urllib.request.Request(url, headers={"User-Agent": "ci-eval"})
-        with urllib.request.urlopen(req, timeout=600) as r, open(dst + ".part", "wb") as f:
-            while True:
-                b = r.read(1 << 20)
-                if not b:
-                    break
-                f.write(b)
-        os.replace(dst + ".part", dst)
-    return dst
+    if os.path.exists(dst):
+        return dst
+    part = dst + ".part"
+    for k in range(tries):
+        have = os.path.getsize(part) if os.path.exists(part) else 0
+        try:
+            req = urllib.request.Request(url, headers={"User-Agent": "ci-eval", **({"Range": f"bytes={have}-"} if have else {})})
+            with urllib.request.urlopen(req, timeout=300) as r:
+                mode = "ab" if have and r.status == 206 else "wb"
+                total = r.headers.get("Content-Length")
+                with open(part, mode) as f:
+                    while True:
+                        b = r.read(1 << 20)
+                        if not b:
+                            break
+                        f.write(b)
+            if total is None or os.path.getsize(part) >= int(total) + (have if mode == "ab" else 0):
+                os.replace(part, dst)
+                return dst
+        except Exception as e:  # noqa: BLE001
+            print("download retry", k, type(e).__name__, str(e)[:120], "bytes", have, flush=True)
+            time.sleep(10 * (k + 1))
+    raise RuntimeError(f"download failed after {tries} tries: {url}")
 
 
 def docfigure():
@@ -200,12 +215,17 @@ def logos():
 def signatures():
     p = hf("ondrs/signverod", r"\.parquet$")[0]
     cats = Counter()
-    n = 0
+    n = red = 0
     for k, r in enumerate(parquet_rows(p, limit=3000)):
         o = r["objects"]
         im = None
         for b, c in zip(o["bbox"], o["category"]):
             cats[c] += 1
+            if c == 3 and red < 700:
+                im = im or img_of(r["image"])
+                x, y, w, h = b
+                save(im.crop((x, y, x + w, y + h)), "other", "signverod_redaction", str(r.get("image_id", k)))
+                red += 1
             if c != 1 or n >= 1700:
                 continue
             im = im or img_of(r["image"])
