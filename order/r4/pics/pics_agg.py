@@ -16,7 +16,8 @@ def main():
     R = {}
     for f in glob.glob(os.path.join(art, "**", "pics-*.json"), recursive=True):
         d = json.load(open(f))
-        R[d["kind"]] = d
+        if "kind" in d:
+            R[d["kind"]] = d
     man = glob.glob(os.path.join(art, "**", "pics-manifest-summary.json"), recursive=True)
     L = ["# Round 4, gap 10: picture classification", ""]
     if man:
