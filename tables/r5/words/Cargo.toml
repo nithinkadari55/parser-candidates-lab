@@ -9,6 +9,8 @@ publish = false
 # harness reads at run time.
 [dependencies]
 docling-pdf = { version = "=2.84.0", default-features = false, features = ["render"] }
+# docling-pdf asks for docling-core ^2.84.0; a newer docling-core no longer matches 2.84.0's code.
+docling-core = { version = "=2.84.0", default-features = false }
 image = { version = "0.25", default-features = false, features = ["png"] }
 serde_json = "1"
 
