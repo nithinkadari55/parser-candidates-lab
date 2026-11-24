@@ -15,6 +15,8 @@ from PIL import Image
 import r3_select as R3
 from r5_sel import leaf_sum
 from r5_tatr import tatr_call
+from r5_join import join_rows
+JOIN = os.environ.get("R5_JOIN", "none")
 
 GOLD = {
     "2206.01062": [(4, 14, 12), (6, 14, 6), (7, 13, 5), (7, 14, 5), (8, 16, 5)],
@@ -75,6 +77,7 @@ def main():
             for c in cb: c["bbox"] = [c["bbox"][0] + ox, c["bbox"][1] + oy, c["bbox"][2] + ox, c["bbox"][3] + oy]
         except Exception as e:
             cb = []; print(tid, "tatr error", repr(e)[:200])
+        cb, _ = join_rows(cb, JOIN)
         L, T = m["crop"][0], m["crop"][1]
         from run_tableformer import cells_of
         ca = cells_of(m["table"], m["ph"], L, T, S)

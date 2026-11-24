@@ -16,8 +16,8 @@ from r4_common import *
 import numpy as np
 import r3_select as R3
 
-R5OUT = os.path.join(OUT, "r5")
-A, B = "tableformer", "tatr16r5"
+R5OUT = os.path.join(OUT, os.environ.get("R5_OUT", "r5"))
+A, B = "tableformer", os.environ.get("R5_B", "tatr16r5")
 R4 = dict(tf=0.916, tatr=0.951, sel=0.961, oracle=0.968)
 PARAMS = dict(n_estimators=300, max_depth=4, learning_rate=0.05, subsample=0.9, colsample_bytree=0.8, n_jobs=4, random_state=0)
 
@@ -92,7 +92,7 @@ def export(model, keys, X):
     print("export check: max |margin difference| over", len(X), "rows =", err, flush=True)
     assert err < 1e-4, err
     model_json = dict(format="contextual-table-selector-v1", objective="binary:logistic", features=keys, base_margin=base_margin,
-                      threshold=0.5, xgboost=XG.__version__, params=PARAMS, words="docling-pdf 2.84.0 PdfPage::word_cells",
+                      threshold=0.5, xgboost=XG.__version__, params=PARAMS, words="docling-pdf 2.84.0 PdfPage::word_cells", tatr_rows_joined=os.environ.get("R5_JOIN", "none"),
                       positive="tatr", trees=trees)
     return model_json, want, err
 

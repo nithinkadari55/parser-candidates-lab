@@ -1,0 +1,213 @@
+name: tables-r5-join
+
+on:
+  workflow_dispatch:
+    inputs:
+      tatr_run:
+        description: "tables-r5 run with the r5tatr-* artifacts (TATR on docling.rs words, before any join)"
+        default: "45317894543"
+
+env:
+  TB_WORK: ${{ github.workspace }}/tables/work
+  PYTHONUNBUFFERED: "1"
+  HF_HUB_DISABLE_PROGRESS_BARS: "1"
+
+jobs:
+  join:
+    runs-on: ubuntu-latest
+    timeout-minutes: 240
+    permissions:
+      actions: read
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        variant: [a, ab]
+        shard: [0, 1, 2, 3, 4]
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - uses: actions/cache/restore@v4
+        with:
+          path: tables/work/data/sets/r4pt
+          key: r4sel-pt-v1--${{ hashFiles('tables/r4/r4_sel_prep.py', 'tables/r4/r4_common.py') }}
+          fail-on-cache-miss: true
+      - uses: actions/cache/restore@v4
+        with:
+          path: tables/work/data/sets/r4brgm
+          key: r4sel-brgm-v1--${{ hashFiles('tables/r4/r4_sel_prep.py', 'tables/r4/r4_common.py') }}
+          fail-on-cache-miss: true
+      - uses: actions/cache/restore@v4
+        with:
+          path: tables/work/data/sets/r4icdar
+          key: r4sel-icdar-v1--${{ hashFiles('tables/r4/r4_sel_prep.py', 'tables/r4/r4_common.py') }}
+          fail-on-cache-miss: true
+      - uses: actions/cache/restore@v4
+        with:
+          path: tables/work/data/sets/r4scitsr
+          key: r4sel-scitsr-v1--${{ hashFiles('tables/r4/r4_sel_prep.py', 'tables/r4/r4_common.py') }}
+          fail-on-cache-miss: true
+      - name: Install
+        run: |
+          pip install -r tables/requirements.txt
+          pip uninstall -y opencv-python opencv-python-headless || true
+          pip install opencv-python-headless==5.1.0.95
+      - name: TATR predictions before the join
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh run download ${{ inputs.tatr_run }} -R ${{ github.repository }} -n r5tatr-${{ matrix.shard }} -D before
+      - name: Join and score
+        working-directory: tables/r5
+        run: |
+          cd ../src && python fetch_models.py grits && cd ../r5
+          python r5_join.py ../../before ../work/out/pred ${{ matrix.variant }} ${{ matrix.shard }} ../work/out/join_fixture.json
+          cd ../src && python score.py ../work/out/pred/tatr16j${{ matrix.variant }}_*_s${{ matrix.shard }}.jsonl --jobs 4
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: r5join-${{ matrix.variant }}-${{ matrix.shard }}
+          path: |
+            tables/work/out/pred/
+            tables/work/out/join_fixture.json
+          retention-days: 30
+
+  sel:
+    needs: join
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 240
+    permissions:
+      actions: read
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        variant: [a, ab]
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install
+        run: |
+          pip install -r tables/requirements.txt scikit-learn==1.7.2 xgboost==3.1.1
+          pip uninstall -y opencv-python opencv-python-headless || true
+          pip install opencv-python-headless==5.1.0.95
+      - uses: actions/cache/restore@v4
+        with:
+          path: tables/work/data/sets/r4pt
+          key: r4sel-pt-v1--${{ hashFiles('tables/r4/r4_sel_prep.py', 'tables/r4/r4_common.py') }}
+          fail-on-cache-miss: true
+      - uses: actions/cache/restore@v4
+        with:
+          path: tables/work/data/sets/r4brgm
+          key: r4sel-brgm-v1--${{ hashFiles('tables/r4/r4_sel_prep.py', 'tables/r4/r4_common.py') }}
+          fail-on-cache-miss: true
+      - uses: actions/cache/restore@v4
+        with:
+          path: tables/work/data/sets/r4icdar
+          key: r4sel-icdar-v1--${{ hashFiles('tables/r4/r4_sel_prep.py', 'tables/r4/r4_common.py') }}
+          fail-on-cache-miss: true
+      - uses: actions/cache/restore@v4
+        with:
+          path: tables/work/data/sets/r4scitsr
+          key: r4sel-scitsr-v1--${{ hashFiles('tables/r4/r4_sel_prep.py', 'tables/r4/r4_common.py') }}
+          fail-on-cache-miss: true
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: r5join-${{ matrix.variant }}-*
+          path: joined
+      - name: Words and TableFormer predictions
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh run download ${{ inputs.tatr_run }} -R ${{ github.repository }} -p "r5tatr-*" -D r5
+          mkdir -p words
+          for d in r5/r5tatr-*/words; do cp -r "$d"/. words/; done
+          gh run download 44879805191 -R ${{ github.repository }} -p "r4sel-tableformer-*" -D tfpreds
+      - name: Selector with joined TATR rows
+        working-directory: tables/r5
+        env:
+          R5_B: tatr16j${{ matrix.variant }}
+          R5_OUT: r5j${{ matrix.variant }}
+          R5_JOIN: ${{ matrix.variant }}
+        run: |
+          cd ../src && python fetch_models.py grits && cd ../r5
+          python r5_sel.py ../../tfpreds ../../joined ../../words | tail -n 40
+          cp ../../joined/r5join-${{ matrix.variant }}-0/join_fixture.json ../work/out/r5j${{ matrix.variant }}/ || true
+          { echo "### variant ${{ matrix.variant }}"; cat ../work/out/r5j${{ matrix.variant }}/sel.md; } >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: r5sel-j${{ matrix.variant }}
+          path: tables/work/out/r5j${{ matrix.variant }}/
+          retention-days: 30
+
+  corpus:
+    needs: sel
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    permissions:
+      actions: read
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        variant: [a, ab]
+    env:
+      DOCLING_RS_FP32: "1"
+      R5_JOIN: ${{ matrix.variant }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Rust
+        run: |
+          rustup toolchain install stable --profile minimal
+          rustup default stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: tables/r5/words
+      - name: Build the docling.rs word tool
+        working-directory: tables/r5/words
+        run: cargo build --release
+      - name: Install
+        run: |
+          pip install -r tables/requirements.txt docling-rs==2.84.0
+          pip uninstall -y opencv-python opencv-python-headless || true
+          pip install opencv-python-headless==5.1.0.95
+      - name: Models
+        working-directory: tables/src
+        run: python fetch_models.py tatr16 tableformer
+      - name: Corpus PDFs (docling.rs v2.84.0 test data)
+        run: |
+          git clone --depth 1 --branch v2.84.0 --filter=blob:none --sparse https://github.com/docling-project/docling.rs.git "$RUNNER_TEMP/dl"
+          git -C "$RUNNER_TEMP/dl" sparse-checkout set tests/data/pdf/sources
+      - uses: actions/download-artifact@v4
+        with:
+          name: r5sel-j${{ matrix.variant }}
+          path: sel
+      - name: Check
+        working-directory: tables/r5
+        run: |
+          python r5_debug.py "$RUNNER_TEMP/dl/tests/data/pdf/sources" ../../sel/table_selector.json "$TB_WORK/dbg" "$PWD/words/target/release/r5words" | tee debug.md
+          { echo "### corpus gold tables, variant ${{ matrix.variant }}"; cat debug.md; } >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: r5corpus-j${{ matrix.variant }}
+          path: tables/r5/debug.md
+          retention-days: 30
