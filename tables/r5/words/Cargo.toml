@@ -1,0 +1,16 @@
+[package]
+name = "r5words"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+# Word boxes and table crops from docling.rs's own PDF stack (the word cells TableFormer
+# matches against, and the 2x page render), so the selector trains on the same words the
+# harness reads at run time.
+[dependencies]
+docling-pdf = { version = "=2.84.0", default-features = false, features = ["render"] }
+image = { version = "0.25", default-features = false, features = ["png"] }
+serde_json = "1"
+
+[profile.release]
+opt-level = 3
