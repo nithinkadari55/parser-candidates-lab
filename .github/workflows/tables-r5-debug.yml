@@ -45,7 +45,7 @@ jobs:
           pip install opencv-python-headless==5.1.0.95
       - name: Models
         working-directory: tables/src
-        run: python fetch_models.py tatr16
+        run: python fetch_models.py tatr16 tableformer
       - name: Corpus PDFs (docling.rs v2.84.0 test data)
         run: |
           git clone --depth 1 --branch v2.84.0 --filter=blob:none --sparse https://github.com/docling-project/docling.rs.git "$RUNNER_TEMP/dl"
