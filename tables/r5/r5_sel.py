@@ -15,6 +15,8 @@ sys.path.insert(0, os.path.join(os.path.dirname(HERE), "r4"))
 from r4_common import *
 import numpy as np
 import r3_select as R3
+import r5_gaps
+GAPS = os.environ.get("R5_GAPS") == "1"
 
 R5OUT = os.path.join(OUT, os.environ.get("R5_OUT", "r5"))
 A, B = "tableformer", os.environ.get("R5_B", "tatr16r5")
@@ -52,6 +54,7 @@ def rows_for(tf_root, tatr_root, words_root):
             x.update({"d_" + k: fb[k] - fa[k] for k in fa})
             x["agree"] = R3.agreement(ca, cb)
             x["n_words"] = len(words)
+            if GAPS: r5_gaps.add_to_row(x, ca, cb, words)
             ft = (time.perf_counter() - t0) * 1000
             va, vb = R3.val(sa[tid]), R3.val(sb[tid])
             if va is None or vb is None: continue
@@ -92,7 +95,7 @@ def export(model, keys, X):
     print("export check: max |margin difference| over", len(X), "rows =", err, flush=True)
     assert err < 1e-4, err
     model_json = dict(format="contextual-table-selector-v1", objective="binary:logistic", features=keys, base_margin=base_margin,
-                      threshold=0.5, xgboost=XG.__version__, params=PARAMS, words="docling-pdf 2.84.0 PdfPage::word_cells", tatr_rows_joined=os.environ.get("R5_JOIN", "none"),
+                      threshold=0.5, xgboost=XG.__version__, params=PARAMS, words="docling-pdf 2.84.0 PdfPage::word_cells", tatr_rows_joined=os.environ.get("R5_JOIN", "none"), split_row_features=GAPS,
                       positive="tatr", trees=trees)
     return model_json, want, err
 
@@ -105,11 +108,17 @@ def main():
     y = np.array([1 if r["vb"] > r["va"] + 1e-9 else 0 for r in rows])
     groups = np.array([r["doc"] for r in rows])
     from sklearn.model_selection import GroupKFold
-    p_x = np.zeros(len(rows))
+    p_x = np.zeros(len(rows)); p_base = np.zeros(len(rows))
+    gap_keys = set("abd"[j] + "_" + n for j in range(3) for n in r5_gaps.NAMES)
+    base_cols = [j for j, k in enumerate(keys) if k not in gap_keys]
     for tr, te in GroupKFold(n_splits=5).split(X, y, groups):
         p_x[te] = xgb().fit(X[tr], y[tr]).predict_proba(X[te])[:, 1]
+        if GAPS:
+            Xb = X[:, base_cols]
+            p_base[te] = xgb().fit(Xb[tr], y[tr]).predict_proba(Xb[te])[:, 1]
     for i, r in enumerate(rows):
         r["xg"] = r["vb"] if p_x[i] > 0.5 else r["va"]
+        r["xg_base"] = r["vb"] if p_base[i] > 0.5 else r["va"]
         r["oracle"] = max(r["va"], r["vb"]); r["p_cv"] = float(p_x[i])
     out = []; P = out.append
     P("## Round 5: table selector retrained on docling.rs word cells (the harness's run-time word source)")
@@ -132,6 +141,16 @@ def main():
     P(f"\n**Round 4 (pdfplumber words): TableFormer {R4['tf']:.3f}, TATR {R4['tatr']:.3f}, selector {R4['sel']:.3f}, oracle {R4['oracle']:.3f}. "
       f"Round 5 (docling.rs words): TableFormer {a['tf']:.4f}, TATR {a['tatr']:.4f}, selector {a['sel']:.4f}, oracle {a['oracle']:.4f}. "
       f"Selector vs round 4: {a['sel'] - R4['sel']:+.4f}.**")
+    if GAPS:
+        gb = cluster_boot(rows, "xg", "xg_base"); pw = wilcoxon_p([r["xg"] for r in rows], [r["xg_base"] for r in rows])
+        P("")
+        P(f"**Split-row features: selector {a['sel']:.4f} vs {sum(r['xg_base'] for r in rows) / len(rows):.4f} without them (same folds); "
+          f"difference {gb[0]:+.4f} [95% CI {gb[1]:+.4f}, {gb[2]:+.4f}], Wilcoxon p {pw:.2g}; {len(keys)} features.**")
+        for s in SEL_SETS:
+            sub = [r for r in rows if r["set"] == s]
+            if sub:
+                g2 = cluster_boot(sub, "xg", "xg_base")
+                P(f"- {SEL_NAMES.get(s, s)}: {g2[0]:+.4f} [{g2[1]:+.4f}, {g2[2]:+.4f}]")
     picks = int(sum(p_x > 0.5)); P(f"\nSelector picks TATR on {picks} of {len(rows)} tables ({100 * picks / len(rows):.1f}%).")
     ft = sorted(r["feat_ms"] for r in rows); P(f"Feature time (Python) p50 {ft[len(ft) // 2]:.1f} ms, p95 {ft[int(0.95 * (len(ft) - 1))]:.1f} ms.")
     final = xgb().fit(X, y)

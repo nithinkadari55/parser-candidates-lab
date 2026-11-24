@@ -16,6 +16,7 @@ import r3_select as R3
 from r5_sel import leaf_sum
 from r5_tatr import tatr_call
 from r5_join import join_rows
+import r5_gaps
 JOIN = os.environ.get("R5_JOIN", "none")
 
 GOLD = {
@@ -85,6 +86,7 @@ def main():
         x = {"a_" + k: v for k, v in fa.items()}; x.update({"b_" + k: v for k, v in fb.items()})
         x.update({"d_" + k: fb[k] - fa[k] for k in fa})
         x["agree"] = R3.agreement(ca, cb); x["n_words"] = len(words)
+        if os.environ.get("R5_GAPS") == "1": r5_gaps.add_to_row(x, ca, cb, words)
         vec = np.array([x[k] for k in model["features"]], np.float32)
         margin = float(np.float32(model["base_margin"]) + leaf_sum(model["trees"], vec))
         prob = 1 / (1 + math.exp(-margin))
