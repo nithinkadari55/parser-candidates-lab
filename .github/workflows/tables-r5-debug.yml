@@ -1,0 +1,70 @@
+name: tables-r5-debug
+
+on:
+  workflow_dispatch:
+    inputs:
+      sel_run:
+        description: "tables-r5 run whose r5-sel artifact holds the exported trees"
+        default: "45317894543"
+
+env:
+  TB_WORK: ${{ github.workspace }}/tables/work
+  PYTHONUNBUFFERED: "1"
+  HF_HUB_DISABLE_PROGRESS_BARS: "1"
+  DOCLING_RS_FP32: "1"
+
+jobs:
+  corpus:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    permissions:
+      actions: read
+      contents: read
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Rust
+        run: |
+          rustup toolchain install stable --profile minimal
+          rustup default stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: tables/r5/words
+      - name: Build the docling.rs word tool
+        working-directory: tables/r5/words
+        run: cargo build --release
+      - name: Install
+        run: |
+          pip install -r tables/requirements.txt docling-rs==2.84.0
+          pip uninstall -y opencv-python opencv-python-headless || true
+          pip install opencv-python-headless==5.1.0.95
+      - name: Models
+        working-directory: tables/src
+        run: python fetch_models.py tatr16
+      - name: Corpus PDFs (docling.rs v2.84.0 test data)
+        run: |
+          git clone --depth 1 --branch v2.84.0 --filter=blob:none --sparse https://github.com/docling-project/docling.rs.git "$RUNNER_TEMP/dl"
+          git -C "$RUNNER_TEMP/dl" sparse-checkout set tests/data/pdf/sources
+          ls "$RUNNER_TEMP/dl/tests/data/pdf/sources" | head
+      - name: Exported trees
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh run download ${{ inputs.sel_run }} -R ${{ github.repository }} -n r5-sel -D sel
+      - name: Check
+        working-directory: tables/r5
+        run: |
+          python r5_debug.py "$RUNNER_TEMP/dl/tests/data/pdf/sources" ../../sel/table_selector.json "$TB_WORK/dbg" "$PWD/words/target/release/r5words" | tee debug.md
+          cat debug.md >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: r5-debug
+          path: |
+            tables/r5/debug.md
+            tables/work/dbg/
+          retention-days: 14
