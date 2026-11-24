@@ -1,0 +1,46 @@
+name: tables-r5-shape
+
+on:
+  workflow_dispatch:
+    inputs:
+      r5_run:
+        description: "tables-r5 run (r5tatr-* and r5-sel artifacts)"
+        default: "45317894543"
+
+env:
+  TB_WORK: ${{ github.workspace }}/tables/work
+  PYTHONUNBUFFERED: "1"
+
+jobs:
+  shape:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      actions: read
+      contents: read
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install -r tables/requirements.txt
+      - name: Saved outputs
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh run download 44879805191 -R ${{ github.repository }} -p "r4sel-tableformer-*" -D tf
+          gh run download ${{ inputs.r5_run }} -R ${{ github.repository }} -p "r5tatr-*" -D tatr
+          gh run download ${{ inputs.r5_run }} -R ${{ github.repository }} -n r5-sel -D sel
+      - name: Exact shape
+        working-directory: tables/r5
+        run: |
+          python r5_shape.py ../../tf ../../tatr ../../sel/sel_rows.jsonl
+          cat ../work/out/r5d/shape.md >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: r5-shape
+          path: tables/work/out/r5d/
+          retention-days: 30
