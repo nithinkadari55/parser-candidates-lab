@@ -19,13 +19,14 @@ def main():
         r = json.loads(line); sel[(r["set"], r["id"])] = r
     rows = []
     for s in SEL_SETS:
-        sa, sb = R3.load(tf_root, "tableformer", s, True), R3.load(tatr_root, "tatr16r5", s, True)
+        sa, sb = R3.load(tf_root, os.environ.get("R5_A", "tableformer"), s, True), R3.load(tatr_root, os.environ.get("R5_B", "tatr16r5"), s, True)
         for tid in sorted(set(sa) & set(sb)):
             r = sel.get((s, tid))
             if r is None: continue
             a, b = float(bool(sa[tid].get("rc_exact"))), float(bool(sb[tid].get("rc_exact")))
             pick_tatr = r["p_cv"] > 0.5
-            rows.append(dict(set=s, doc=r["doc"], tf=a, tatr=b, sel=b if pick_tatr else a, oracle=max(a, b), zero=0.0))
+            frozen = (b if r["p_frozen"] > 0.5 else a) if "p_frozen" in r else None
+            rows.append(dict(set=s, doc=r["doc"], tf=a, tatr=b, sel=b if pick_tatr else a, oracle=max(a, b), zero=0.0, frozen=frozen))
     out = []; P = out.append
     P("## Round 5d: exact table shape (rows and columns both right), committed selector vs single models")
     P(f"Tables: {len(rows)} (the round-5 selector rows). Selector = committed round-5 trees' 5-fold CV picks. 95% CI: bootstrap over documents.\n")
@@ -40,6 +41,9 @@ def main():
         f = lambda c: f"{c[0]:.4f} [{c[1]:.4f}, {c[2]:.4f}]"
         g = lambda c: f"{c[0]:+.4f} [{c[1]:+.4f}, {c[2]:+.4f}]"
         P(f"| {SEL_NAMES.get(name, name)} | {len(sub)} | {f(ci['tf'])} | {f(ci['tatr'])} | {f(ci['sel'])} | {g(d_tf)} | {g(d_tatr)} | {orc:.4f} |")
+        if sub[0]["frozen"] is not None:
+            fz = cluster_boot(sub, "frozen", "zero"); dfz = cluster_boot(sub, "frozen", "tf")
+            P(f"| ... committed selector | | | | {f(fz)} | {g(dfz)} | | |")
         summary[name] = dict(n=len(sub), tf=ci["tf"], tatr=ci["tatr"], sel=ci["sel"], sel_minus_tf=d_tf, sel_minus_tatr=d_tatr, oracle=orc)
     txt = "\n".join(out); print(txt)
     os.makedirs(os.path.join(OUT, "r5d"), exist_ok=True)

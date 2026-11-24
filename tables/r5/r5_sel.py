@@ -19,7 +19,7 @@ import r5_gaps
 GAPS = os.environ.get("R5_GAPS") == "1"
 
 R5OUT = os.path.join(OUT, os.environ.get("R5_OUT", "r5"))
-A, B = "tableformer", os.environ.get("R5_B", "tatr16r5")
+A, B = os.environ.get("R5_A", "tableformer"), os.environ.get("R5_B", "tatr16r5")
 R4 = dict(tf=0.916, tatr=0.951, sel=0.961, oracle=0.968)
 PARAMS = dict(n_estimators=300, max_depth=4, learning_rate=0.05, subsample=0.9, colsample_bytree=0.8, n_jobs=4, random_state=0)
 
@@ -120,6 +120,14 @@ def main():
         r["xg"] = r["vb"] if p_x[i] > 0.5 else r["va"]
         r["xg_base"] = r["vb"] if p_base[i] > 0.5 else r["va"]
         r["oracle"] = max(r["va"], r["vb"]); r["p_cv"] = float(p_x[i])
+    frozen_path = os.environ.get("R5_FROZEN")
+    if frozen_path:
+        fm = json.load(open(frozen_path))
+        for r in rows:
+            vec = np.array([r["x"][k] for k in fm["features"]], np.float32)
+            m = float(np.float32(fm["base_margin"]) + leaf_sum(fm["trees"], vec))
+            r["p_frozen"] = 1 / (1 + math.exp(-m))
+            r["frozen"] = r["vb"] if r["p_frozen"] > 0.5 else r["va"]
     out = []; P = out.append
     P("## Round 5: table selector retrained on docling.rs word cells (the harness's run-time word source)")
     P(f"Value per table: TEDS-Struct (GriTS-Top where the grid exceeds 1200 cells). Tables: {len(rows)}, documents (CV groups): {len(set(groups))}. "
@@ -151,6 +159,14 @@ def main():
             if sub:
                 g2 = cluster_boot(sub, "xg", "xg_base")
                 P(f"- {SEL_NAMES.get(s, s)}: {g2[0]:+.4f} [{g2[1]:+.4f}, {g2[2]:+.4f}]")
+    if frozen_path:
+        P("")
+        P("**Committed selector (round-5 trees, trained on answer-key crops) applied unchanged to these tables:**")
+        for name, sub in [("all", rows)] + [(s, [r for r in rows if r["set"] == s]) for s in SEL_SETS]:
+            if not sub: continue
+            for r in sub: r["_tf"] = r["va"]
+            g = cluster_boot(sub, "frozen", "_tf")
+            P(f"- {SEL_NAMES.get(name, name)}: TEDS-Struct {sum(r['frozen'] for r in sub) / len(sub):.4f}, vs TableFormer {g[0]:+.4f} [{g[1]:+.4f}, {g[2]:+.4f}]")
     picks = int(sum(p_x > 0.5)); P(f"\nSelector picks TATR on {picks} of {len(rows)} tables ({100 * picks / len(rows):.1f}%).")
     ft = sorted(r["feat_ms"] for r in rows); P(f"Feature time (Python) p50 {ft[len(ft) // 2]:.1f} ms, p95 {ft[int(0.95 * (len(ft) - 1))]:.1f} ms.")
     final = xgb().fit(X, y)
@@ -178,7 +194,7 @@ def main():
                                 words=[dict(text=w["text"], bbox=w["bbox"]) for w in rows[i]["words"]], features=rows[i]["x"]) for i in pick]),
               open(os.path.join(R5OUT, "features_fixture.json"), "w"))
     with open(os.path.join(R5OUT, "sel_rows.jsonl"), "w", encoding="utf-8") as f:
-        for r in rows: f.write(json.dumps({k: v for k, v in r.items() if k not in ("x", "ca", "cb", "words", "_best")}) + "\n")
+        for r in rows: f.write(json.dumps({k: v for k, v in r.items() if k not in ("x", "ca", "cb", "words", "_best", "_tf")}) + "\n")
 
 
 if __name__ == "__main__":

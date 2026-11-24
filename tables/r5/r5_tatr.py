@@ -32,14 +32,34 @@ def mine(key, shard, n): return zlib.crc32(key.encode()) % n == shard
 def load_gt(s, tid): return json.load(open(os.path.join(SETS, s, tid + ".json"), encoding="utf-8"))
 
 
+NAME = os.environ.get("R5_TATR_NAME", "tatr16r5")
+
+
+def runtime_crops():
+    """R5_CROPS: a folder of <model>_<set>_s*.jsonl records with crop_pt_rt (round 5e, docling's layout box + 4 pt)."""
+    root = os.environ.get("R5_CROPS")
+    if not root: return None
+    import glob
+    out = {}
+    for p in glob.glob(os.path.join(root, "**", "*.jsonl"), recursive=True):
+        if p.endswith(".scored.jsonl"): continue
+        for line in open(p, encoding="utf-8"):
+            r = json.loads(line)
+            if r.get("crop_pt_rt"): out[r["id"]] = r["crop_pt_rt"]
+    return out
+
+
 def jobs(shard, n, out):
     k = 0
+    crops = runtime_crops()
     with open(out, "w", encoding="utf-8") as f:
         for s in SEL_SETS:
             for tid in set_ids(s):
                 if not mine(tid, shard, n): continue
                 g = load_gt(s, tid)
-                f.write(json.dumps(dict(set=s, id=tid, pdf=os.path.join(SETS, s, g["pdf"]), page=0, crop_pt=g["crop_pt"])) + "\n"); k += 1
+                crop = g["crop_pt"] if crops is None else crops.get(tid)
+                if crop is None: continue
+                f.write(json.dumps(dict(set=s, id=tid, pdf=os.path.join(SETS, s, g["pdf"]), page=0, crop_pt=crop)) + "\n"); k += 1
     print("jobs", k, flush=True)
 
 
@@ -70,7 +90,7 @@ def run(shard, n, wdir):
     fixdir = os.path.join(OUT, "r5fix"); os.makedirs(fixdir, exist_ok=True)
     post_fix, raw_fix, e2e_fix = [], [], []
     for s in SEL_SETS:
-        of = os.path.join(OUT, "pred", f"tatr16r5_{s}_s{shard}.jsonl")
+        of = os.path.join(OUT, "pred", f"{NAME}_{s}_s{shard}.jsonl")
         ov_new, ov_old, nw, nfix = [], [], [], 0
         with open(of, "w", encoding="utf-8") as f:
             for tid in set_ids(s):
@@ -108,7 +128,7 @@ def run(shard, n, wdir):
                 f.write(json.dumps(rec) + "\n")
         if ov_new:
             print(f"{s}: tables {len(ov_new)}  words/table median {statistics.median(nw)}  text overlap with the answer key: docling words {statistics.mean(ov_new):.4f}  r4 pdfplumber {statistics.mean(ov_old):.4f}", flush=True)
-        print("done tatr16r5", s, shard, flush=True)
+        print("done", NAME, s, shard, flush=True)
     if shard == 0:
         json.dump(dict(source="tables/r5/r5_tatr.py (TATR v1.1 fp16, Xenova onnx/model_fp16.onnx; postprocess.py + inference.py at microsoft/table-transformer 16d124f, fitz.Rect shim)",
                        thresholds=dict(table=0.5, column=0.5, row=0.5, column_header=0.5, projected_row_header=0.5, spanning_cell=0.5),

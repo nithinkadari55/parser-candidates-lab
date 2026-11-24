@@ -1,0 +1,239 @@
+name: tables-r5e
+
+# Round 5 with the harness's crop rule: docling's matched layout box (fp32 heron) + 4 pt instead of the answer-key box.
+
+on:
+  workflow_dispatch:
+    inputs:
+      limit:
+        description: "smoke test: only the first N tables per set (empty = all)"
+        default: ""
+      frozen_run:
+        description: "tables-r5 run whose r5-sel artifact holds the committed trees"
+        default: "45317894543"
+
+env:
+  TB_WORK: ${{ github.workspace }}/tables/work
+  PYTHONUNBUFFERED: "1"
+  HF_HUB_DISABLE_PROGRESS_BARS: "1"
+  TB_LIMIT: ${{ inputs.limit }}
+  DOCLING_RS_FP32: "1"
+
+jobs:
+  tf:
+    runs-on: ubuntu-latest
+    timeout-minutes: 300
+    strategy:
+      fail-fast: false
+      max-parallel: 10
+      matrix:
+        shard: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - uses: actions/cache/restore@v4
+        with:
+          path: tables/work/data/sets/r4pt
+          key: r4sel-pt-v1--${{ hashFiles('tables/r4/r4_sel_prep.py', 'tables/r4/r4_common.py') }}
+          fail-on-cache-miss: true
+      - uses: actions/cache/restore@v4
+        with:
+          path: tables/work/data/sets/r4brgm
+          key: r4sel-brgm-v1--${{ hashFiles('tables/r4/r4_sel_prep.py', 'tables/r4/r4_common.py') }}
+          fail-on-cache-miss: true
+      - uses: actions/cache/restore@v4
+        with:
+          path: tables/work/data/sets/r4icdar
+          key: r4sel-icdar-v1--${{ hashFiles('tables/r4/r4_sel_prep.py', 'tables/r4/r4_common.py') }}
+          fail-on-cache-miss: true
+      - uses: actions/cache/restore@v4
+        with:
+          path: tables/work/data/sets/r4scitsr
+          key: r4sel-scitsr-v1--${{ hashFiles('tables/r4/r4_sel_prep.py', 'tables/r4/r4_common.py') }}
+          fail-on-cache-miss: true
+      - name: Install
+        run: |
+          pip install -r tables/requirements.txt docling-rs==2.84.0
+          pip uninstall -y opencv-python opencv-python-headless || true
+          pip install opencv-python-headless==5.1.0.95
+      - name: Models
+        working-directory: tables/src
+        run: python fetch_models.py tableformer grits
+      - name: TableFormer with the fp32 layout, run-time crops
+        working-directory: tables/r5
+        run: nproc; python r5e_tf.py ${{ matrix.shard }} 10
+      - name: Score
+        working-directory: tables/src
+        run: python score.py ../work/out/pred/tfrt_*_s${{ matrix.shard }}.jsonl --jobs 4
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: r5e-tf-${{ matrix.shard }}
+          path: tables/work/out/pred/
+          retention-days: 30
+
+  tatr:
+    needs: tf
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 300
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [0, 1, 2, 3, 4]
+    env:
+      R5_CROPS: ${{ github.workspace }}/crops
+      R5_TATR_NAME: tatrrt
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Rust
+        run: |
+          rustup toolchain install stable --profile minimal
+          rustup default stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: tables/r5/words
+      - name: Build the docling.rs word tool
+        working-directory: tables/r5/words
+        run: cargo build --release
+      - uses: actions/cache/restore@v4
+        with:
+          path: tables/work/data/sets/r4pt
+          key: r4sel-pt-v1--${{ hashFiles('tables/r4/r4_sel_prep.py', 'tables/r4/r4_common.py') }}
+          fail-on-cache-miss: true
+      - uses: actions/cache/restore@v4
+        with:
+          path: tables/work/data/sets/r4brgm
+          key: r4sel-brgm-v1--${{ hashFiles('tables/r4/r4_sel_prep.py', 'tables/r4/r4_common.py') }}
+          fail-on-cache-miss: true
+      - uses: actions/cache/restore@v4
+        with:
+          path: tables/work/data/sets/r4icdar
+          key: r4sel-icdar-v1--${{ hashFiles('tables/r4/r4_sel_prep.py', 'tables/r4/r4_common.py') }}
+          fail-on-cache-miss: true
+      - uses: actions/cache/restore@v4
+        with:
+          path: tables/work/data/sets/r4scitsr
+          key: r4sel-scitsr-v1--${{ hashFiles('tables/r4/r4_sel_prep.py', 'tables/r4/r4_common.py') }}
+          fail-on-cache-miss: true
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: r5e-tf-*
+          path: crops
+      - name: Install
+        run: |
+          pip install -r tables/requirements.txt
+          pip uninstall -y opencv-python opencv-python-headless || true
+          pip install opencv-python-headless==5.1.0.95
+      - name: Models
+        working-directory: tables/src
+        run: python fetch_models.py tatr16
+      - name: Words and crops from docling.rs (run-time crop)
+        working-directory: tables/r5
+        run: |
+          python r5_tatr.py jobs ${{ matrix.shard }} 5 "$RUNNER_TEMP/jobs.jsonl"
+          ./words/target/release/r5words "$RUNNER_TEMP/jobs.jsonl" "$TB_WORK/r5words"
+      - name: TATR fp16
+        working-directory: tables/r5
+        run: python r5_tatr.py run ${{ matrix.shard }} 5 "$TB_WORK/r5words"
+      - name: Score
+        working-directory: tables/src
+        run: python score.py ../work/out/pred/tatrrt_*_s${{ matrix.shard }}.jsonl --jobs 4
+      - name: Pack
+        if: always()
+        run: |
+          mkdir -p pack/words
+          cp -r tables/work/out/pred pack/ || true
+          (cd tables/work/r5words && find . -name '*.json' | tar -cf - -T - | tar -xf - -C ../../../pack/words) || true
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: r5e-tatr-${{ matrix.shard }}
+          path: pack/
+          retention-days: 30
+
+  sel:
+    needs: tatr
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 240
+    permissions:
+      actions: read
+      contents: read
+    env:
+      R5_A: tfrt
+      R5_B: tatrrt
+      R5_OUT: r5e
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install
+        run: |
+          pip install -r tables/requirements.txt scikit-learn==1.7.2 xgboost==3.1.1
+          pip uninstall -y opencv-python opencv-python-headless || true
+          pip install opencv-python-headless==5.1.0.95
+      - uses: actions/cache/restore@v4
+        with:
+          path: tables/work/data/sets/r4pt
+          key: r4sel-pt-v1--${{ hashFiles('tables/r4/r4_sel_prep.py', 'tables/r4/r4_common.py') }}
+          fail-on-cache-miss: true
+      - uses: actions/cache/restore@v4
+        with:
+          path: tables/work/data/sets/r4brgm
+          key: r4sel-brgm-v1--${{ hashFiles('tables/r4/r4_sel_prep.py', 'tables/r4/r4_common.py') }}
+          fail-on-cache-miss: true
+      - uses: actions/cache/restore@v4
+        with:
+          path: tables/work/data/sets/r4icdar
+          key: r4sel-icdar-v1--${{ hashFiles('tables/r4/r4_sel_prep.py', 'tables/r4/r4_common.py') }}
+          fail-on-cache-miss: true
+      - uses: actions/cache/restore@v4
+        with:
+          path: tables/work/data/sets/r4scitsr
+          key: r4sel-scitsr-v1--${{ hashFiles('tables/r4/r4_sel_prep.py', 'tables/r4/r4_common.py') }}
+          fail-on-cache-miss: true
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: r5e-*
+          path: art
+      - name: Committed trees
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh run download ${{ inputs.frozen_run }} -R ${{ github.repository }} -n r5-sel -D frozen
+      - name: Merge words
+        run: |
+          mkdir -p words
+          for d in art/r5e-tatr-*/words; do cp -r "$d"/. words/; done
+          for s in words/*; do echo "$s $(ls $s | wc -l)"; done
+      - name: Selector and exact shape
+        working-directory: tables/r5
+        env:
+          R5_FROZEN: ${{ github.workspace }}/frozen/table_selector.json
+        run: |
+          cd ../src && python fetch_models.py grits && cd ../r5
+          python r5_sel.py ../../art ../../art ../../words | tail -n 60
+          python r5_shape.py ../../art ../../art ../work/out/r5e/sel_rows.jsonl
+          cp ../work/out/r5d/* ../work/out/r5e/
+          { cat ../work/out/r5e/sel.md; echo; cat ../work/out/r5e/shape.md; } >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: r5e-sel
+          path: tables/work/out/r5e/
+          retention-days: 30
