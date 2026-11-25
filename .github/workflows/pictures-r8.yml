@@ -1,0 +1,171 @@
+name: pictures-r8
+
+# Round 8, test A: docling's picture classifier vs MobileNetV3-small and DINOv2-small heads on frozen
+# features, on a broad multi-source crop set scored on held-out sources and on hand-labelled real-document
+# crops. Crops live only in actions/cache; only per-item predictions (ids, labels) and reports are uploaded.
+
+on:
+  workflow_dispatch:
+    inputs:
+      probe:
+        description: "probe mode: a few crops per source, no C search"
+        default: "false"
+      groups:
+        description: "JSON list of data groups"
+        default: '["charts","ubpmc","scicap","diagrams","photos","screens","logosig","stamps","tables","wikimedia","cvit","realdoc"]'
+
+permissions:
+  contents: read
+  actions: read
+
+env:
+  PYTHONUNBUFFERED: "1"
+  HF_HUB_DISABLE_PROGRESS_BARS: "1"
+  PROBE_FLAG: ${{ inputs.probe == 'true' && '--probe' || '' }}
+
+jobs:
+  data:
+    runs-on: ubuntu-latest
+    timeout-minutes: 240
+    strategy:
+      fail-fast: false
+      max-parallel: 12
+      matrix:
+        group: ${{ fromJSON(inputs.groups) }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install numpy==2.4.6 pillow==13.0.0 pyarrow==26.0.1 huggingface_hub==0.35.3
+      - id: c
+        uses: actions/cache@v4
+        with:
+          path: /home/runner/p8/${{ matrix.group }}
+          key: p8-${{ matrix.group }}-${{ inputs.probe }}-${{ hashFiles('order/r8/pictures/p8_data.py', 'order/r8/pictures/p8_common.py', 'order/r8/pictures/httpzip.py', 'order/r8/pictures/realdoc_labels.jsonl') }}
+      - if: steps.c.outputs.cache-hit != 'true'
+        run: |
+          python order/r8/pictures/p8_data.py ${{ matrix.group }} /home/runner/p8/${{ matrix.group }} $PROBE_FLAG
+          rm -rf "$RUNNER_TEMP/p8-tmp"
+      - name: Status
+        run: |
+          mkdir -p out
+          python - <<'EOF'
+          import glob, json, os
+          st = {}
+          for f in glob.glob("/home/runner/p8/${{ matrix.group }}/*/status.json"):
+              d = json.load(open(f)); st[d["src"]] = d
+          json.dump(st, open("out/status-${{ matrix.group }}.json", "w"), indent=1)
+          print(json.dumps(st, indent=1))
+          EOF
+          du -sh /home/runner/p8/${{ matrix.group }}/* || true
+      - uses: actions/upload-artifact@v4
+        with:
+          name: p8-status-${{ matrix.group }}
+          path: out/
+
+  model:
+    needs: data
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 330
+    strategy:
+      fail-fast: false
+      matrix:
+        kind: [docling, mnv3, dinov2]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: |
+          pip install numpy==2.4.6 pillow==13.0.0 onnxruntime==1.32.0 onnx==1.17.0 ml_dtypes==0.5.3 scikit-learn==1.7.2 scipy==1.17.1
+          if [ "${{ matrix.kind }}" != "docling" ]; then
+            pip install torch==2.15.0 torchvision==0.29.2 --index-url https://download.pytorch.org/whl/cpu
+            pip install timm==1.0.15 transformers==4.57.1 huggingface_hub==0.35.3
+          fi
+      - uses: actions/cache/restore@v4
+        with:
+          path: /home/runner/p8/charts
+          key: p8-charts-${{ inputs.probe }}-${{ hashFiles('order/r8/pictures/p8_data.py', 'order/r8/pictures/p8_common.py', 'order/r8/pictures/httpzip.py', 'order/r8/pictures/realdoc_labels.jsonl') }}
+      - uses: actions/cache/restore@v4
+        with:
+          path: /home/runner/p8/ubpmc
+          key: p8-ubpmc-${{ inputs.probe }}-${{ hashFiles('order/r8/pictures/p8_data.py', 'order/r8/pictures/p8_common.py', 'order/r8/pictures/httpzip.py', 'order/r8/pictures/realdoc_labels.jsonl') }}
+      - uses: actions/cache/restore@v4
+        with:
+          path: /home/runner/p8/scicap
+          key: p8-scicap-${{ inputs.probe }}-${{ hashFiles('order/r8/pictures/p8_data.py', 'order/r8/pictures/p8_common.py', 'order/r8/pictures/httpzip.py', 'order/r8/pictures/realdoc_labels.jsonl') }}
+      - uses: actions/cache/restore@v4
+        with:
+          path: /home/runner/p8/diagrams
+          key: p8-diagrams-${{ inputs.probe }}-${{ hashFiles('order/r8/pictures/p8_data.py', 'order/r8/pictures/p8_common.py', 'order/r8/pictures/httpzip.py', 'order/r8/pictures/realdoc_labels.jsonl') }}
+      - uses: actions/cache/restore@v4
+        with:
+          path: /home/runner/p8/photos
+          key: p8-photos-${{ inputs.probe }}-${{ hashFiles('order/r8/pictures/p8_data.py', 'order/r8/pictures/p8_common.py', 'order/r8/pictures/httpzip.py', 'order/r8/pictures/realdoc_labels.jsonl') }}
+      - uses: actions/cache/restore@v4
+        with:
+          path: /home/runner/p8/screens
+          key: p8-screens-${{ inputs.probe }}-${{ hashFiles('order/r8/pictures/p8_data.py', 'order/r8/pictures/p8_common.py', 'order/r8/pictures/httpzip.py', 'order/r8/pictures/realdoc_labels.jsonl') }}
+      - uses: actions/cache/restore@v4
+        with:
+          path: /home/runner/p8/logosig
+          key: p8-logosig-${{ inputs.probe }}-${{ hashFiles('order/r8/pictures/p8_data.py', 'order/r8/pictures/p8_common.py', 'order/r8/pictures/httpzip.py', 'order/r8/pictures/realdoc_labels.jsonl') }}
+      - uses: actions/cache/restore@v4
+        with:
+          path: /home/runner/p8/stamps
+          key: p8-stamps-${{ inputs.probe }}-${{ hashFiles('order/r8/pictures/p8_data.py', 'order/r8/pictures/p8_common.py', 'order/r8/pictures/httpzip.py', 'order/r8/pictures/realdoc_labels.jsonl') }}
+      - uses: actions/cache/restore@v4
+        with:
+          path: /home/runner/p8/tables
+          key: p8-tables-${{ inputs.probe }}-${{ hashFiles('order/r8/pictures/p8_data.py', 'order/r8/pictures/p8_common.py', 'order/r8/pictures/httpzip.py', 'order/r8/pictures/realdoc_labels.jsonl') }}
+      - uses: actions/cache/restore@v4
+        with:
+          path: /home/runner/p8/wikimedia
+          key: p8-wikimedia-${{ inputs.probe }}-${{ hashFiles('order/r8/pictures/p8_data.py', 'order/r8/pictures/p8_common.py', 'order/r8/pictures/httpzip.py', 'order/r8/pictures/realdoc_labels.jsonl') }}
+      - uses: actions/cache/restore@v4
+        with:
+          path: /home/runner/p8/cvit
+          key: p8-cvit-${{ inputs.probe }}-${{ hashFiles('order/r8/pictures/p8_data.py', 'order/r8/pictures/p8_common.py', 'order/r8/pictures/httpzip.py', 'order/r8/pictures/realdoc_labels.jsonl') }}
+      - uses: actions/cache/restore@v4
+        with:
+          path: /home/runner/p8/realdoc
+          key: p8-realdoc-${{ inputs.probe }}-${{ hashFiles('order/r8/pictures/p8_data.py', 'order/r8/pictures/p8_common.py', 'order/r8/pictures/httpzip.py', 'order/r8/pictures/realdoc_labels.jsonl') }}
+      - run: |
+          ls /home/runner/p8 || true
+          mkdir -p out
+          python order/r8/pictures/p8_model.py ${{ matrix.kind }} /home/runner/p8 out $PROBE_FLAG
+          rm -f out/*.onnx
+          ls -la out
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: p8-model-${{ matrix.kind }}
+          path: out/
+          retention-days: 30
+
+  report:
+    needs: [data, model]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install numpy==2.4.6
+      - uses: actions/download-artifact@v4
+        with:
+          path: res
+          pattern: p8-*
+      - run: |
+          mkdir -p out
+          python order/r8/pictures/p8_report.py res out/pictures_r8.md out/pictures_r8.json
+          cat out/pictures_r8.md >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: p8-report
+          path: out/

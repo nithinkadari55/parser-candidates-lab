@@ -1,0 +1,137 @@
+name: heron-r8
+
+# Round 8, test B: heron fp32 vs heron int8 on layout sets not covered in round 7.
+# Ground truth: ICDAR-2017 POD table subset (Table only), DocBank test sample, IIIT-AR-13K (Table + Picture,
+# if the CVIT server answers). No ground truth: World Bank PDFs, Zenodo slide decks, scanned forms (agreement).
+# Data stays in job scratch and actions/cache; only page lists, detections and the report are uploaded.
+
+on:
+  workflow_dispatch:
+    inputs:
+      limit:
+        description: "pages per ground-truth set"
+        default: "2000"
+      real_limit:
+        description: "real pages (World Bank + slides + scanned forms)"
+        default: "1500"
+      sets:
+        description: "JSON list of sets"
+        default: '["pod2017","docbank","iiitar13k","real2"]'
+
+permissions:
+  contents: read
+  actions: read
+
+env:
+  PYTHONUNBUFFERED: "1"
+  HF_HUB_DISABLE_PROGRESS_BARS: "1"
+
+jobs:
+  data:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    strategy:
+      fail-fast: false
+      matrix:
+        ds: ${{ fromJSON(inputs.sets) }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install -r order/requirements-core.txt pypdfium2==5.15.2 pyarrow==21.0.0
+      - name: Data
+        run: |
+          lim=${{ inputs.limit }}; [ "${{ matrix.ds }}" = "real2" ] && lim=${{ inputs.real_limit }}
+          python order/r8/layout/r8_data.py ${{ matrix.ds }} /home/runner/r8data/${{ matrix.ds }} "$lim"
+          rm -rf /home/runner/r8data/${{ matrix.ds }}/_hf /home/runner/r8data/${{ matrix.ds }}/_pdf /home/runner/r8data/${{ matrix.ds }}/_iiit.zip
+          find /home/runner/r8data/${{ matrix.ds }}/_pod -name "*.xml" -delete 2>/dev/null || true
+          rm -rf /home/runner/r8data/${{ matrix.ds }}/_pod/.git
+          mkdir -p out && cp /home/runner/r8data/${{ matrix.ds }}/pages.jsonl out/${{ matrix.ds }}-pages.jsonl
+          du -sh /home/runner/r8data/${{ matrix.ds }}
+      - uses: actions/cache/save@v4
+        with:
+          path: /home/runner/r8data/${{ matrix.ds }}
+          key: r8l-${{ matrix.ds }}-${{ github.run_id }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: r8l-pages-${{ matrix.ds }}
+          path: out/
+          retention-days: 30
+
+  run:
+    needs: data
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 240
+    strategy:
+      fail-fast: false
+      max-parallel: 16
+      matrix:
+        ds: ${{ fromJSON(inputs.sets) }}
+        model: [heron, heron_int8]
+        shard: [0, 1]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install -r order/requirements-core.txt onnxruntime==1.32.0
+      - uses: actions/cache/restore@v4
+        with:
+          path: /home/runner/r8data/${{ matrix.ds }}
+          key: r8l-${{ matrix.ds }}-${{ github.run_id }}
+          fail-on-cache-miss: true
+      - id: dlrs
+        uses: actions/cache/restore@v4
+        with:
+          path: /home/runner/dlrs
+          key: dlrs-2.84.0-models-v1
+      - if: steps.dlrs.outputs.cache-hit != 'true'
+        run: |
+          pip install docling-rs==2.84.0
+          python -c "from docling_rs import models as m; m.download_models(dest='/home/runner/dlrs', progress=False, enrichment=False)"
+      - run: ls -la /home/runner/dlrs/models | grep -i heron
+      - name: Layout
+        run: |
+          mkdir -p out
+          python order/layout/r7/r7_run.py ${{ matrix.model }} /home/runner/r8data/${{ matrix.ds }}/pages.jsonl ${{ matrix.shard }} 2 "out/${{ matrix.ds }}-${{ matrix.model }}-${{ matrix.shard }}.jsonl"
+          wc -l out/*.jsonl
+      - uses: actions/upload-artifact@v4
+        with:
+          name: r8l-${{ matrix.ds }}-${{ matrix.model }}-${{ matrix.shard }}
+          path: out/
+          retention-days: 30
+
+  eval:
+    needs: run
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install numpy==2.4.6 scipy==1.17.1
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: r8l-*
+          path: art
+          merge-multiple: true
+      - run: |
+          mkdir -p data dets
+          for ds in pod2017 docbank iiitar13k real2; do
+            mkdir -p data/$ds
+            [ -f "art/$ds-pages.jsonl" ] && cp "art/$ds-pages.jsonl" data/$ds/pages.jsonl
+          done
+          cp art/*-heron*.jsonl dets/ || true
+          python order/r8/layout/r8_eval.py data dets r8_layout.md r8_layout.json
+          cat r8_layout.md >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: r8l-report
+          path: |
+            r8_layout.md
+            r8_layout.json
