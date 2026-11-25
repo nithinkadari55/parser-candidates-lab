@@ -1,0 +1,184 @@
+name: tables-m14
+
+# Milestone 14: the harness's table selector retrained on the round-8 tables (sel14.py) and the fixtures for the
+# harness's scanned-table path (gen14.py, synthetic pages only).
+
+on:
+  workflow_dispatch:
+
+env:
+  TB_WORK: ${{ github.workspace }}/tables/work
+  PYTHONUNBUFFERED: "1"
+  HF_HUB_DISABLE_PROGRESS_BARS: "1"
+  DLRS_CACHE: /home/runner/dlrs
+
+jobs:
+  sel:
+    runs-on: ubuntu-latest
+    timeout-minutes: 240
+    permissions:
+      actions: read
+      contents: read
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - uses: actions/cache/restore@v4
+        with:
+          path: tables/work/out/r8/priv/s0
+          key: r8priv-45676430603-0
+          fail-on-cache-miss: true
+      - uses: actions/cache/restore@v4
+        with:
+          path: tables/work/out/r8/priv/s1
+          key: r8priv-45676430603-1
+          fail-on-cache-miss: true
+      - uses: actions/cache/restore@v4
+        with:
+          path: tables/work/out/r8/priv/s2
+          key: r8priv-45676430603-2
+          fail-on-cache-miss: true
+      - uses: actions/cache/restore@v4
+        with:
+          path: tables/work/out/r8/priv/s3
+          key: r8priv-45676430603-3
+          fail-on-cache-miss: true
+      - uses: actions/cache/restore@v4
+        with:
+          path: tables/work/out/r8/priv/s4
+          key: r8priv-45676430603-4
+          fail-on-cache-miss: true
+      - uses: actions/cache/restore@v4
+        with:
+          path: tables/work/out/r8/priv/s5
+          key: r8priv-45676430603-5
+          fail-on-cache-miss: true
+      - uses: actions/cache/restore@v4
+        with:
+          path: tables/work/out/r8/priv/s6
+          key: r8priv-45676430603-6
+          fail-on-cache-miss: true
+      - uses: actions/cache/restore@v4
+        with:
+          path: tables/work/out/r8/priv/s7
+          key: r8priv-45676430603-7
+          fail-on-cache-miss: true
+      - uses: actions/cache/restore@v4
+        with:
+          path: tables/work/out/r8/priv/s8
+          key: r8priv-45676430603-8
+          fail-on-cache-miss: true
+      - uses: actions/cache/restore@v4
+        with:
+          path: tables/work/out/r8/priv/s9
+          key: r8priv-45676430603-9
+          fail-on-cache-miss: true
+      - uses: actions/cache/restore@v4
+        with:
+          path: tables/work/out/r8/priv/s10
+          key: r8priv-45676430603-10
+          fail-on-cache-miss: true
+      - uses: actions/cache/restore@v4
+        with:
+          path: tables/work/out/r8/priv/s11
+          key: r8priv-45676430603-11
+          fail-on-cache-miss: true
+      - uses: actions/cache/restore@v4
+        with:
+          path: tables/work/out/r8/priv/s12
+          key: r8priv-45676430603-12
+          fail-on-cache-miss: true
+      - uses: actions/cache/restore@v4
+        with:
+          path: tables/work/out/r8/priv/s13
+          key: r8priv-45676430603-13
+          fail-on-cache-miss: true
+      - uses: actions/cache/restore@v4
+        with:
+          path: tables/work/out/r8/priv/s14
+          key: r8priv-45676430603-14
+          fail-on-cache-miss: true
+      - uses: actions/cache/restore@v4
+        with:
+          path: tables/work/out/r8/priv/s15
+          key: r8priv-45676430603-15
+          fail-on-cache-miss: true
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: r8pub-*
+          path: pub
+          run-id: 45676430603
+          github-token: ${{ github.token }}
+      - name: Committed selector
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh run download 45317894543 -R ${{ github.repository }} -n r5-sel -D frozen
+      - name: Install
+        run: |
+          pip install -r tables/requirements.txt scikit-learn==1.7.2 xgboost==3.1.1
+          pip uninstall -y opencv-python opencv-python-headless || true
+          pip install opencv-python-headless==5.1.0.95
+      - name: Selector
+        run: |
+          (cd tables/src && python fetch_models.py grits)
+          python tables/r8/sel14.py pub tables/work/out/r8/priv frozen/table_selector.json out
+          cat out/sel14.md >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: m14-sel
+          path: out/
+          retention-days: 30
+
+  fixtures:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Rust
+        run: |
+          rustup toolchain install stable --profile minimal
+          rustup default stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: tables/r5/words
+      - name: Build the docling.rs word tool
+        working-directory: tables/r5/words
+        run: cargo build --release
+      - id: dlrs
+        uses: actions/cache/restore@v4
+        with:
+          path: /home/runner/dlrs
+          key: dlrs-2.84.0-models-v1
+      - name: Install
+        run: |
+          pip install -r tables/requirements.txt
+          pip uninstall -y opencv-python opencv-python-headless || true
+          pip install opencv-python-headless==5.1.0.95
+          ls /usr/share/fonts/truetype/dejavu/ || sudo apt-get install -y fonts-dejavu-core
+      - if: steps.dlrs.outputs.cache-hit != 'true'
+        run: |
+          pip install docling-rs==2.84.0
+          python -c "from docling_rs import models as m; m.download_models(dest='/home/runner/dlrs', progress=False, enrichment=False)"
+      - name: Models
+        run: |
+          (cd tables/src && python fetch_models.py tatr16)
+          python tables/r8/models8.py
+      - name: Fixtures
+        run: python tables/r8/gen14.py fx tables/r5/words/target/release/r5words
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: m14-fixtures
+          path: fx/
+          retention-days: 30
