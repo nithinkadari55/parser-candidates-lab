@@ -1,0 +1,39 @@
+name: tables-r8-inspect
+
+# Round 8 probe: structure of the new table datasets (keys and counts only, no content).
+
+on:
+  workflow_dispatch:
+    inputs:
+      which:
+        description: "comma list of inspect8.py targets"
+        default: "fintabnet_c,synfin,pt2,ctdar,wtw,tabrec,lcnet"
+
+env:
+  PYTHONUNBUFFERED: "1"
+  HF_HUB_DISABLE_PROGRESS_BARS: "1"
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [fintabnet_c, synfin, pt2, ctdar, wtw, tabrec, lcnet]
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+        if: contains(format(',{0},', inputs.which), format(',{0},', matrix.target))
+      - uses: actions/setup-python@v5
+        if: contains(format(',{0},', inputs.which), format(',{0},', matrix.target))
+        with:
+          python-version: "3.11"
+      - name: Inspect
+        if: contains(format(',{0},', inputs.which), format(',{0},', matrix.target))
+        run: |
+          pip install -q -r tables/requirements.txt
+          df -h /tmp | tail -1
+          python tables/r8/inspect8.py ${{ matrix.target }}
