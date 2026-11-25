@@ -96,7 +96,7 @@ def main():
         conv = convs[scan]
         bypage = {}
         for tid in ids:
-            g = load_gt(s, tid); bypage.setdefault((g["pdf"], g.get("page_index", 0)), []).append(g)
+            g = load_gt(s, tid); bypage.setdefault((g["pdf"], 0), []).append(g)
         found = total = errs = 0
         with open(os.path.join(odir, f"tf_{s}_s{shard}.jsonl"), "w", encoding="utf-8") as f:
             for (fn, pi) in sorted(bypage):

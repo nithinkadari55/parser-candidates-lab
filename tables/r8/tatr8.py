@@ -157,7 +157,7 @@ def main():
             r = tf[(s, tid)]
             if not r.get("found"): continue
             g = load_gt(s, tid)
-            f.write(json.dumps(dict(set=s, id=tid, pdf=os.path.join(SETS, s, g["pdf"]), page=g.get("page_index", 0), crop_pt=r["crop_pt_rt"])) + "\n")
+            f.write(json.dumps(dict(set=s, id=tid, pdf=os.path.join(SETS, s, g["pdf"]), page=0, crop_pt=r["crop_pt_rt"])) + "\n")
     t0 = time.time()
     subprocess.run([words_bin, jobs, wdir], check=True)
     print("r5words s", round(time.time() - t0), flush=True)
@@ -218,7 +218,7 @@ def main():
             else:
                 words = [dict(text=x["text"], bbox=x["bbox"]) for x in wj["words"]]
                 t1 = time.perf_counter()
-                turn, nglyph = glyph_turn(os.path.join(SETS, s, g["pdf"]), g.get("page_index", 0), r["crop_pt_rt"])
+                turn, nglyph = glyph_turn(os.path.join(SETS, s, g["pdf"]), 0, r["crop_pt_rt"])
                 meta.update(turn=turn, n_glyphs=nglyph, ms_vote=(time.perf_counter() - t1) * 1000)
                 if g.get("rot"): meta.update(truth_turn=g["rot"]["truth_turn"], rot_mode=g["rot"]["mode"], rot_theta=g["rot"]["theta"])
                 cells, ms_m, ms_t = tatr(M, im, words, turn)

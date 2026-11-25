@@ -12,7 +12,7 @@ Text-layer pages scale the image so the median word box is 9 pt high (a body-tex
 the image into 842 pt. Samples are seeded and stratified as in rounds 3-5 (prep_sets.stratify).
 Downloads stay in the job's scratch directory; only the derived sets are kept, in an Actions cache.
 usage: prep8.py NAME"""
-import os, sys, io, re, json, glob, math, random, shutil, tarfile, zipfile, subprocess, collections, urllib.request, time
+import os, sys, io, re, json, glob, math, random, shutil, tarfile, zipfile, subprocess, collections, urllib.request, urllib.parse, time
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 from common8 import *
@@ -412,7 +412,7 @@ def prep_synfin():
                 if fo is None: w.stats["no_offset_fit"] += 1; continue
                 (ax, bx, ex), (ay, by, ey) = fo[0]
                 fits.append((ax, ay, ex, ey))
-                if not (0.3 < ax < 5) or abs(ax - ay) > 0.05 * ax or ex > 3 * ax or ey > 3 * ay: w.stats["bad_offset_fit"] += 1; continue
+                if not (0.3 < ax < 5) or abs(ax - ay) > 0.05 * ax or ex > 8 * ax or ey > 8 * ay: w.stats["bad_offset_fit"] += 1; continue
                 tb = r["bbox"]; tbi = [tb[0] * ax + bx, tb[1] * ay + by, tb[2] * ax + bx, tb[3] * ay + by]
                 X0, Y0 = max(0, int(tbi[0]) - 12), max(0, int(tbi[1]) - 12)
                 X1, Y1 = min(im.size[0], int(math.ceil(tbi[2])) + 12), min(im.size[1], int(math.ceil(tbi[3])) + 12)
@@ -496,7 +496,6 @@ def prep_wtw():
         dst = os.path.join(hd, rel.replace("/", "_"))
         if not os.path.exists(dst): get(f"{WTW}?Revision=master&FilePath={urllib.parse.quote(rel)}", dst)
         return dst
-    import urllib.parse
     with ThreadPoolExecutor(16) as ex:
         htmls = dict(zip(names, ex.map(lambda n: fetch(f"html/{n}.html"), names)))
     pool = []; recs = {}
@@ -595,13 +594,13 @@ def prep_rotpdf():
             g = load_gt(s, tid)
             try:
                 src = open(os.path.join(SETS, s, g["pdf"]), "rb").read()
-                pg = pdfium.PdfDocument(src)[g.get("page_index", 0)]
+                pg = pdfium.PdfDocument(src)[0]
                 if pg.get_rotation(): w.stats["already_rotated"] += 1; continue
                 cl, cb, cr, ct = pg.get_cropbox()
                 L, T, R, B = g["crop_pt"]
                 user = [L + cl, ct - B, R + cl, ct - T]
                 theta = rng.choice([90, 180, 270]); mode = ("attr", "content")[k % 2]
-                pdfb, Tm = R3R.build_pdf_rotated(src, g.get("page_index", 0), theta, mode)
+                pdfb, Tm = R3R.build_pdf_rotated(src, 0, theta, mode)
                 box = R3R.region_device(pdfb, 0, 1.0, user, Tm)
                 if box[2] - box[0] < 5 or box[3] - box[1] < 5: w.stats["empty_region"] += 1; continue
                 nid = "rotpdf_" + tid; fn = nid + ".pdf"
