@@ -1,10 +1,16 @@
 name: tables-m14
 
-# Milestone 14: the harness's table selector retrained on the round-8 tables (sel14.py) and the fixtures for the
-# harness's scanned-table path (gen14.py, synthetic pages only).
+# Milestone 14: the harness's table selector retrained on the licence-allowed round-8 tables (sel14.py), the PP-LCNet
+# gate for scans (gate14.py, from the per-table files) and the fixtures for the harness's scanned-table path (gen14.py,
+# synthetic pages only; run when `fixtures` is set).
 
 on:
   workflow_dispatch:
+    inputs:
+      fixtures:
+        description: also regenerate the synthetic scanned-table fixtures
+        type: boolean
+        default: false
 
 env:
   TB_WORK: ${{ github.workspace }}/tables/work
@@ -125,8 +131,9 @@ jobs:
       - name: Selector
         run: |
           (cd tables/src && python fetch_models.py grits)
+          python tables/r8/gate14.py pub out
           python tables/r8/sel14.py pub tables/work/out/r8/priv frozen/table_selector.json out
-          cat out/sel14.md >> "$GITHUB_STEP_SUMMARY"
+          cat out/gate14.md out/sel14.md >> "$GITHUB_STEP_SUMMARY"
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -135,6 +142,7 @@ jobs:
           retention-days: 30
 
   fixtures:
+    if: inputs.fixtures
     runs-on: ubuntu-latest
     timeout-minutes: 60
     defaults:
