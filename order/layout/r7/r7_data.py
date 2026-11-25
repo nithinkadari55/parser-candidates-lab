@@ -74,7 +74,7 @@ def publaynet(out, limit):
     import pyarrow.parquet as pq
     from huggingface_hub import hf_hub_download
     root = os.path.join(out, "_hf")
-    path = hf_hub_download("creative-graphic-design/PubLayNet", "data/validation-00000-of-00007.parquet",
+    path = hf_hub_download("creative-graphic-design/PubLayNet", "data/validation-00000-of-00008.parquet",
                            repo_type="dataset", local_dir=root)
     t = pq.read_table(path)
     print("publaynet schema:", t.schema, flush=True)

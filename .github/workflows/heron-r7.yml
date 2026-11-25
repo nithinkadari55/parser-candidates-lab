@@ -14,6 +14,12 @@ on:
       real_limit:
         description: "real PDF pages"
         default: "2500"
+      sets:
+        description: "JSON list of sets to run"
+        default: '["d4la","m6doc","publaynet","real"]'
+      with_run:
+        description: "earlier heron-r7 run whose detections the eval also uses"
+        default: ""
 
 permissions:
   contents: read
@@ -26,7 +32,7 @@ jobs:
       fail-fast: false
       max-parallel: 8
       matrix:
-        ds: [d4la, m6doc, publaynet, real]
+        ds: ${{ fromJSON(inputs.sets) }}
         model: [heron, heron_int8]
     steps:
       - uses: actions/checkout@v4
@@ -65,12 +71,23 @@ jobs:
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 60
+    permissions:
+      actions: read
+      contents: read
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
       - run: pip install numpy==2.4.6 scipy==1.17.1
+      - name: Detections of an earlier run
+        if: ${{ inputs.with_run != '' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh run download ${{ inputs.with_run }} -R ${{ github.repository }} -p "r7-*-heron*" -D prev
+          mkdir -p art
+          find prev -name "*.jsonl" -exec cp {} art/ \;
       - uses: actions/download-artifact@v4
         with:
           pattern: r7-*
