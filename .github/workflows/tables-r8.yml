@@ -1,0 +1,518 @@
+name: tables-r8
+
+# Round 8: TATR alone vs the TableFormer + TATR combo on a broad table benchmark (tables/r8). Datasets are prepared
+# and kept in Actions caches only; artifacts hold scores and metadata without table text.
+
+on:
+  workflow_dispatch:
+    inputs:
+      limit:
+        description: "probe: only the first N tables per set (empty = all)"
+        default: ""
+      reuse_run:
+        description: "analysis only: take the pub artifacts and priv caches of this earlier tables-r8 run"
+        default: ""
+
+env:
+  TB_WORK: ${{ github.workspace }}/tables/work
+  TB_LIMIT: ${{ inputs.limit }}
+  PYTHONUNBUFFERED: "1"
+  HF_HUB_DISABLE_PROGRESS_BARS: "1"
+  DLRS_CACHE: /home/runner/dlrs
+
+jobs:
+  prep:
+    if: ${{ inputs.reuse_run == '' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 150
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: ptn
+            path: tables/work/data/sets/ptn
+          - name: pt2
+            path: tables/work/data/sets/pt2
+          - name: ftnc
+            path: tables/work/data/sets/ftnc
+          - name: synfin
+            path: tables/work/data/sets/synfin
+          - name: tabrec
+            path: tables/work/data/sets/tabrec
+          - name: wtw
+            path: tables/work/data/sets/wtw
+          - name: ctdar
+            path: |
+              tables/work/data/sets/ctdarm
+              tables/work/data/sets/ctdarh
+          - name: rotpdf
+            path: tables/work/data/sets/rotpdf
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      - id: have
+        uses: actions/cache/restore@v4
+        with:
+          path: ${{ matrix.path }}
+          key: r8set-${{ matrix.name }}-v1-L${{ inputs.limit }}-${{ hashFiles('tables/r8/prep8.py', 'tables/src/prep_sets.py', 'tables/src/prep_pt2.py', 'tables/src/prep_tabrec.py', 'tables/src/r3_rotate.py') }}
+          lookup-only: true
+      - if: steps.have.outputs.cache-hit != 'true'
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - if: steps.have.outputs.cache-hit != 'true' && matrix.name == 'rotpdf'
+        name: Round-4 sets (rotation sources)
+        run: echo restoring
+      - if: steps.have.outputs.cache-hit != 'true' && matrix.name == 'rotpdf'
+        uses: actions/cache/restore@v4
+        with:
+          path: tables/work/data/sets/r4pt
+          key: r4sel-pt-v1--${{ hashFiles('tables/r4/r4_sel_prep.py', 'tables/r4/r4_common.py') }}
+          fail-on-cache-miss: true
+      - if: steps.have.outputs.cache-hit != 'true' && matrix.name == 'rotpdf'
+        uses: actions/cache/restore@v4
+        with:
+          path: tables/work/data/sets/r4brgm
+          key: r4sel-brgm-v1--${{ hashFiles('tables/r4/r4_sel_prep.py', 'tables/r4/r4_common.py') }}
+          fail-on-cache-miss: true
+      - if: steps.have.outputs.cache-hit != 'true' && matrix.name == 'rotpdf'
+        uses: actions/cache/restore@v4
+        with:
+          path: tables/work/data/sets/r4icdar
+          key: r4sel-icdar-v1--${{ hashFiles('tables/r4/r4_sel_prep.py', 'tables/r4/r4_common.py') }}
+          fail-on-cache-miss: true
+      - if: steps.have.outputs.cache-hit != 'true' && matrix.name == 'rotpdf'
+        uses: actions/cache/restore@v4
+        with:
+          path: tables/work/data/sets/r4scitsr
+          key: r4sel-scitsr-v1--${{ hashFiles('tables/r4/r4_sel_prep.py', 'tables/r4/r4_common.py') }}
+          fail-on-cache-miss: true
+      - if: steps.have.outputs.cache-hit != 'true'
+        name: Install
+        run: |
+          pip install -r tables/requirements.txt pypdf==6.1.3
+          pip uninstall -y opencv-python opencv-python-headless || true
+          pip install opencv-python-headless==5.1.0.95
+          df -h . | tail -1
+      - if: steps.have.outputs.cache-hit != 'true'
+        name: Prepare
+        env:
+          R8_SCRATCH: ${{ runner.temp }}/r8scratch
+        run: python tables/r8/prep8.py ${{ matrix.name }}
+      - if: steps.have.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ${{ matrix.path }}
+          key: r8set-${{ matrix.name }}-v1-L${{ inputs.limit }}-${{ hashFiles('tables/r8/prep8.py', 'tables/src/prep_sets.py', 'tables/src/prep_pt2.py', 'tables/src/prep_tabrec.py', 'tables/src/r3_rotate.py') }}
+
+  tf:
+    needs: prep
+    if: ${{ inputs.reuse_run == '' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 330
+    strategy:
+      fail-fast: false
+      max-parallel: 20
+      matrix:
+        shard: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19]
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - uses: actions/cache/restore@v4
+        with:
+          path: tables/work/data/sets/r4pt
+          key: r4sel-pt-v1--${{ hashFiles('tables/r4/r4_sel_prep.py', 'tables/r4/r4_common.py') }}
+          fail-on-cache-miss: true
+      - uses: actions/cache/restore@v4
+        with:
+          path: tables/work/data/sets/r4brgm
+          key: r4sel-brgm-v1--${{ hashFiles('tables/r4/r4_sel_prep.py', 'tables/r4/r4_common.py') }}
+          fail-on-cache-miss: true
+      - uses: actions/cache/restore@v4
+        with:
+          path: tables/work/data/sets/r4icdar
+          key: r4sel-icdar-v1--${{ hashFiles('tables/r4/r4_sel_prep.py', 'tables/r4/r4_common.py') }}
+          fail-on-cache-miss: true
+      - uses: actions/cache/restore@v4
+        with:
+          path: tables/work/data/sets/r4scitsr
+          key: r4sel-scitsr-v1--${{ hashFiles('tables/r4/r4_sel_prep.py', 'tables/r4/r4_common.py') }}
+          fail-on-cache-miss: true
+      - uses: actions/cache/restore@v4
+        with:
+          path: tables/work/data/sets/ptn
+          key: r8set-ptn-v1-L${{ inputs.limit }}-${{ hashFiles('tables/r8/prep8.py', 'tables/src/prep_sets.py', 'tables/src/prep_pt2.py', 'tables/src/prep_tabrec.py', 'tables/src/r3_rotate.py') }}
+          fail-on-cache-miss: true
+      - uses: actions/cache/restore@v4
+        with:
+          path: tables/work/data/sets/pt2
+          key: r8set-pt2-v1-L${{ inputs.limit }}-${{ hashFiles('tables/r8/prep8.py', 'tables/src/prep_sets.py', 'tables/src/prep_pt2.py', 'tables/src/prep_tabrec.py', 'tables/src/r3_rotate.py') }}
+          fail-on-cache-miss: true
+      - uses: actions/cache/restore@v4
+        with:
+          path: tables/work/data/sets/ftnc
+          key: r8set-ftnc-v1-L${{ inputs.limit }}-${{ hashFiles('tables/r8/prep8.py', 'tables/src/prep_sets.py', 'tables/src/prep_pt2.py', 'tables/src/prep_tabrec.py', 'tables/src/r3_rotate.py') }}
+          fail-on-cache-miss: true
+      - uses: actions/cache/restore@v4
+        with:
+          path: tables/work/data/sets/synfin
+          key: r8set-synfin-v1-L${{ inputs.limit }}-${{ hashFiles('tables/r8/prep8.py', 'tables/src/prep_sets.py', 'tables/src/prep_pt2.py', 'tables/src/prep_tabrec.py', 'tables/src/r3_rotate.py') }}
+          fail-on-cache-miss: true
+      - uses: actions/cache/restore@v4
+        with:
+          path: tables/work/data/sets/tabrec
+          key: r8set-tabrec-v1-L${{ inputs.limit }}-${{ hashFiles('tables/r8/prep8.py', 'tables/src/prep_sets.py', 'tables/src/prep_pt2.py', 'tables/src/prep_tabrec.py', 'tables/src/r3_rotate.py') }}
+          fail-on-cache-miss: true
+      - uses: actions/cache/restore@v4
+        with:
+          path: tables/work/data/sets/wtw
+          key: r8set-wtw-v1-L${{ inputs.limit }}-${{ hashFiles('tables/r8/prep8.py', 'tables/src/prep_sets.py', 'tables/src/prep_pt2.py', 'tables/src/prep_tabrec.py', 'tables/src/r3_rotate.py') }}
+          fail-on-cache-miss: true
+      - uses: actions/cache/restore@v4
+        with:
+          path: |
+            tables/work/data/sets/ctdarm
+            tables/work/data/sets/ctdarh
+          key: r8set-ctdar-v1-L${{ inputs.limit }}-${{ hashFiles('tables/r8/prep8.py', 'tables/src/prep_sets.py', 'tables/src/prep_pt2.py', 'tables/src/prep_tabrec.py', 'tables/src/r3_rotate.py') }}
+          fail-on-cache-miss: true
+      - uses: actions/cache/restore@v4
+        with:
+          path: tables/work/data/sets/rotpdf
+          key: r8set-rotpdf-v1-L${{ inputs.limit }}-${{ hashFiles('tables/r8/prep8.py', 'tables/src/prep_sets.py', 'tables/src/prep_pt2.py', 'tables/src/prep_tabrec.py', 'tables/src/r3_rotate.py') }}
+          fail-on-cache-miss: true
+      - name: Install
+        run: |
+          pip install -r tables/requirements.txt pypdf==6.1.3 docling-rs==2.84.0
+          pip uninstall -y opencv-python opencv-python-headless || true
+          pip install opencv-python-headless==5.1.0.95
+      - id: dlrs
+        uses: actions/cache@v4
+        with:
+          path: /home/runner/dlrs
+          key: dlrs-2.84.0-models-v1
+      - if: steps.dlrs.outputs.cache-hit != 'true'
+        run: |
+          pip install docling-rs==2.84.0
+          python -c "from docling_rs import models as m; m.download_models(dest='/home/runner/dlrs', progress=False, enrichment=False)"
+      - run: ls -la /home/runner/dlrs/models /home/runner/dlrs/models/tableformer
+      - name: TableFormer (docling-rs 2.84.0, fp32 layout)
+        run: nproc; grep -m1 "model name" /proc/cpuinfo; python tables/r8/tf8.py ${{ matrix.shard }} 20
+      - name: docling stderr (tail)
+        if: always()
+        run: tail -n 40 tables/work/out/r8/tf/stderr_s${{ matrix.shard }}.log || true
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: r8tf-${{ matrix.shard }}
+          path: tables/work/out/r8/tf/
+          retention-days: 30
+
+  tatr:
+    needs: tf
+    if: ${{ inputs.reuse_run == '' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 330
+    strategy:
+      fail-fast: false
+      max-parallel: 20
+      matrix:
+        shard: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Rust
+        run: |
+          rustup toolchain install stable --profile minimal
+          rustup default stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: tables/r5/words
+      - name: Build the docling.rs word tool
+        working-directory: tables/r5/words
+        run: cargo build --release
+      - uses: actions/cache/restore@v4
+        with:
+          path: tables/work/data/sets/r4pt
+          key: r4sel-pt-v1--${{ hashFiles('tables/r4/r4_sel_prep.py', 'tables/r4/r4_common.py') }}
+          fail-on-cache-miss: true
+      - uses: actions/cache/restore@v4
+        with:
+          path: tables/work/data/sets/r4brgm
+          key: r4sel-brgm-v1--${{ hashFiles('tables/r4/r4_sel_prep.py', 'tables/r4/r4_common.py') }}
+          fail-on-cache-miss: true
+      - uses: actions/cache/restore@v4
+        with:
+          path: tables/work/data/sets/r4icdar
+          key: r4sel-icdar-v1--${{ hashFiles('tables/r4/r4_sel_prep.py', 'tables/r4/r4_common.py') }}
+          fail-on-cache-miss: true
+      - uses: actions/cache/restore@v4
+        with:
+          path: tables/work/data/sets/r4scitsr
+          key: r4sel-scitsr-v1--${{ hashFiles('tables/r4/r4_sel_prep.py', 'tables/r4/r4_common.py') }}
+          fail-on-cache-miss: true
+      - uses: actions/cache/restore@v4
+        with:
+          path: tables/work/data/sets/ptn
+          key: r8set-ptn-v1-L${{ inputs.limit }}-${{ hashFiles('tables/r8/prep8.py', 'tables/src/prep_sets.py', 'tables/src/prep_pt2.py', 'tables/src/prep_tabrec.py', 'tables/src/r3_rotate.py') }}
+          fail-on-cache-miss: true
+      - uses: actions/cache/restore@v4
+        with:
+          path: tables/work/data/sets/pt2
+          key: r8set-pt2-v1-L${{ inputs.limit }}-${{ hashFiles('tables/r8/prep8.py', 'tables/src/prep_sets.py', 'tables/src/prep_pt2.py', 'tables/src/prep_tabrec.py', 'tables/src/r3_rotate.py') }}
+          fail-on-cache-miss: true
+      - uses: actions/cache/restore@v4
+        with:
+          path: tables/work/data/sets/ftnc
+          key: r8set-ftnc-v1-L${{ inputs.limit }}-${{ hashFiles('tables/r8/prep8.py', 'tables/src/prep_sets.py', 'tables/src/prep_pt2.py', 'tables/src/prep_tabrec.py', 'tables/src/r3_rotate.py') }}
+          fail-on-cache-miss: true
+      - uses: actions/cache/restore@v4
+        with:
+          path: tables/work/data/sets/synfin
+          key: r8set-synfin-v1-L${{ inputs.limit }}-${{ hashFiles('tables/r8/prep8.py', 'tables/src/prep_sets.py', 'tables/src/prep_pt2.py', 'tables/src/prep_tabrec.py', 'tables/src/r3_rotate.py') }}
+          fail-on-cache-miss: true
+      - uses: actions/cache/restore@v4
+        with:
+          path: tables/work/data/sets/tabrec
+          key: r8set-tabrec-v1-L${{ inputs.limit }}-${{ hashFiles('tables/r8/prep8.py', 'tables/src/prep_sets.py', 'tables/src/prep_pt2.py', 'tables/src/prep_tabrec.py', 'tables/src/r3_rotate.py') }}
+          fail-on-cache-miss: true
+      - uses: actions/cache/restore@v4
+        with:
+          path: tables/work/data/sets/wtw
+          key: r8set-wtw-v1-L${{ inputs.limit }}-${{ hashFiles('tables/r8/prep8.py', 'tables/src/prep_sets.py', 'tables/src/prep_pt2.py', 'tables/src/prep_tabrec.py', 'tables/src/r3_rotate.py') }}
+          fail-on-cache-miss: true
+      - uses: actions/cache/restore@v4
+        with:
+          path: |
+            tables/work/data/sets/ctdarm
+            tables/work/data/sets/ctdarh
+          key: r8set-ctdar-v1-L${{ inputs.limit }}-${{ hashFiles('tables/r8/prep8.py', 'tables/src/prep_sets.py', 'tables/src/prep_pt2.py', 'tables/src/prep_tabrec.py', 'tables/src/r3_rotate.py') }}
+          fail-on-cache-miss: true
+      - uses: actions/cache/restore@v4
+        with:
+          path: tables/work/data/sets/rotpdf
+          key: r8set-rotpdf-v1-L${{ inputs.limit }}-${{ hashFiles('tables/r8/prep8.py', 'tables/src/prep_sets.py', 'tables/src/prep_pt2.py', 'tables/src/prep_tabrec.py', 'tables/src/r3_rotate.py') }}
+          fail-on-cache-miss: true
+      - name: Install
+        run: |
+          pip install -r tables/requirements.txt pypdf==6.1.3
+          pip uninstall -y opencv-python opencv-python-headless || true
+          pip install opencv-python-headless==5.1.0.95
+      - id: dlrs
+        uses: actions/cache@v4
+        with:
+          path: /home/runner/dlrs
+          key: dlrs-2.84.0-models-v1
+      - if: steps.dlrs.outputs.cache-hit != 'true'
+        run: |
+          pip install docling-rs==2.84.0
+          python -c "from docling_rs import models as m; m.download_models(dest='/home/runner/dlrs', progress=False, enrichment=False)"
+      - run: ls -la /home/runner/dlrs/models /home/runner/dlrs/models/tableformer
+      - name: Models
+        run: |
+          (cd tables/src && python fetch_models.py tatr16)
+          python tables/r8/models8.py
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: r8tf-*
+          path: tfout
+      - name: TATR, OCR, orientation, scoring
+        run: nproc; grep -m1 "model name" /proc/cpuinfo; python tables/r8/tatr8.py ${{ matrix.shard }} 16 tfout tables/r5/words/target/release/r5words
+      - uses: actions/cache/save@v4
+        if: always()
+        with:
+          path: tables/work/out/r8/priv/s${{ matrix.shard }}
+          key: r8priv-${{ github.run_id }}-${{ matrix.shard }}
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: r8pub-${{ matrix.shard }}
+          path: tables/work/out/r8/pub/
+          retention-days: 30
+
+  analyze:
+    needs: tatr
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+    permissions:
+      actions: read
+      contents: read
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - uses: actions/cache/restore@v4
+        with:
+          path: tables/work/data/sets/r4pt
+          key: r4sel-pt-v1--${{ hashFiles('tables/r4/r4_sel_prep.py', 'tables/r4/r4_common.py') }}
+          fail-on-cache-miss: true
+      - uses: actions/cache/restore@v4
+        with:
+          path: tables/work/data/sets/r4brgm
+          key: r4sel-brgm-v1--${{ hashFiles('tables/r4/r4_sel_prep.py', 'tables/r4/r4_common.py') }}
+          fail-on-cache-miss: true
+      - uses: actions/cache/restore@v4
+        with:
+          path: tables/work/data/sets/r4icdar
+          key: r4sel-icdar-v1--${{ hashFiles('tables/r4/r4_sel_prep.py', 'tables/r4/r4_common.py') }}
+          fail-on-cache-miss: true
+      - uses: actions/cache/restore@v4
+        with:
+          path: tables/work/data/sets/r4scitsr
+          key: r4sel-scitsr-v1--${{ hashFiles('tables/r4/r4_sel_prep.py', 'tables/r4/r4_common.py') }}
+          fail-on-cache-miss: true
+      - uses: actions/cache/restore@v4
+        with:
+          path: tables/work/data/sets/ptn
+          key: r8set-ptn-v1-L${{ inputs.limit }}-${{ hashFiles('tables/r8/prep8.py', 'tables/src/prep_sets.py', 'tables/src/prep_pt2.py', 'tables/src/prep_tabrec.py', 'tables/src/r3_rotate.py') }}
+          fail-on-cache-miss: true
+      - uses: actions/cache/restore@v4
+        with:
+          path: tables/work/data/sets/pt2
+          key: r8set-pt2-v1-L${{ inputs.limit }}-${{ hashFiles('tables/r8/prep8.py', 'tables/src/prep_sets.py', 'tables/src/prep_pt2.py', 'tables/src/prep_tabrec.py', 'tables/src/r3_rotate.py') }}
+          fail-on-cache-miss: true
+      - uses: actions/cache/restore@v4
+        with:
+          path: tables/work/data/sets/ftnc
+          key: r8set-ftnc-v1-L${{ inputs.limit }}-${{ hashFiles('tables/r8/prep8.py', 'tables/src/prep_sets.py', 'tables/src/prep_pt2.py', 'tables/src/prep_tabrec.py', 'tables/src/r3_rotate.py') }}
+          fail-on-cache-miss: true
+      - uses: actions/cache/restore@v4
+        with:
+          path: tables/work/data/sets/synfin
+          key: r8set-synfin-v1-L${{ inputs.limit }}-${{ hashFiles('tables/r8/prep8.py', 'tables/src/prep_sets.py', 'tables/src/prep_pt2.py', 'tables/src/prep_tabrec.py', 'tables/src/r3_rotate.py') }}
+          fail-on-cache-miss: true
+      - uses: actions/cache/restore@v4
+        with:
+          path: tables/work/data/sets/tabrec
+          key: r8set-tabrec-v1-L${{ inputs.limit }}-${{ hashFiles('tables/r8/prep8.py', 'tables/src/prep_sets.py', 'tables/src/prep_pt2.py', 'tables/src/prep_tabrec.py', 'tables/src/r3_rotate.py') }}
+          fail-on-cache-miss: true
+      - uses: actions/cache/restore@v4
+        with:
+          path: tables/work/data/sets/wtw
+          key: r8set-wtw-v1-L${{ inputs.limit }}-${{ hashFiles('tables/r8/prep8.py', 'tables/src/prep_sets.py', 'tables/src/prep_pt2.py', 'tables/src/prep_tabrec.py', 'tables/src/r3_rotate.py') }}
+          fail-on-cache-miss: true
+      - uses: actions/cache/restore@v4
+        with:
+          path: |
+            tables/work/data/sets/ctdarm
+            tables/work/data/sets/ctdarh
+          key: r8set-ctdar-v1-L${{ inputs.limit }}-${{ hashFiles('tables/r8/prep8.py', 'tables/src/prep_sets.py', 'tables/src/prep_pt2.py', 'tables/src/prep_tabrec.py', 'tables/src/r3_rotate.py') }}
+          fail-on-cache-miss: true
+      - uses: actions/cache/restore@v4
+        with:
+          path: tables/work/data/sets/rotpdf
+          key: r8set-rotpdf-v1-L${{ inputs.limit }}-${{ hashFiles('tables/r8/prep8.py', 'tables/src/prep_sets.py', 'tables/src/prep_pt2.py', 'tables/src/prep_tabrec.py', 'tables/src/r3_rotate.py') }}
+          fail-on-cache-miss: true
+      - uses: actions/cache/restore@v4
+        with:
+          path: tables/work/out/r8/priv/s0
+          key: r8priv-${{ inputs.reuse_run || github.run_id }}-0
+      - uses: actions/cache/restore@v4
+        with:
+          path: tables/work/out/r8/priv/s1
+          key: r8priv-${{ inputs.reuse_run || github.run_id }}-1
+      - uses: actions/cache/restore@v4
+        with:
+          path: tables/work/out/r8/priv/s2
+          key: r8priv-${{ inputs.reuse_run || github.run_id }}-2
+      - uses: actions/cache/restore@v4
+        with:
+          path: tables/work/out/r8/priv/s3
+          key: r8priv-${{ inputs.reuse_run || github.run_id }}-3
+      - uses: actions/cache/restore@v4
+        with:
+          path: tables/work/out/r8/priv/s4
+          key: r8priv-${{ inputs.reuse_run || github.run_id }}-4
+      - uses: actions/cache/restore@v4
+        with:
+          path: tables/work/out/r8/priv/s5
+          key: r8priv-${{ inputs.reuse_run || github.run_id }}-5
+      - uses: actions/cache/restore@v4
+        with:
+          path: tables/work/out/r8/priv/s6
+          key: r8priv-${{ inputs.reuse_run || github.run_id }}-6
+      - uses: actions/cache/restore@v4
+        with:
+          path: tables/work/out/r8/priv/s7
+          key: r8priv-${{ inputs.reuse_run || github.run_id }}-7
+      - uses: actions/cache/restore@v4
+        with:
+          path: tables/work/out/r8/priv/s8
+          key: r8priv-${{ inputs.reuse_run || github.run_id }}-8
+      - uses: actions/cache/restore@v4
+        with:
+          path: tables/work/out/r8/priv/s9
+          key: r8priv-${{ inputs.reuse_run || github.run_id }}-9
+      - uses: actions/cache/restore@v4
+        with:
+          path: tables/work/out/r8/priv/s10
+          key: r8priv-${{ inputs.reuse_run || github.run_id }}-10
+      - uses: actions/cache/restore@v4
+        with:
+          path: tables/work/out/r8/priv/s11
+          key: r8priv-${{ inputs.reuse_run || github.run_id }}-11
+      - uses: actions/cache/restore@v4
+        with:
+          path: tables/work/out/r8/priv/s12
+          key: r8priv-${{ inputs.reuse_run || github.run_id }}-12
+      - uses: actions/cache/restore@v4
+        with:
+          path: tables/work/out/r8/priv/s13
+          key: r8priv-${{ inputs.reuse_run || github.run_id }}-13
+      - uses: actions/cache/restore@v4
+        with:
+          path: tables/work/out/r8/priv/s14
+          key: r8priv-${{ inputs.reuse_run || github.run_id }}-14
+      - uses: actions/cache/restore@v4
+        with:
+          path: tables/work/out/r8/priv/s15
+          key: r8priv-${{ inputs.reuse_run || github.run_id }}-15
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: r8pub-*
+          path: pub
+          run-id: ${{ inputs.reuse_run || github.run_id }}
+          github-token: ${{ github.token }}
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: r8tf-*
+          path: tfout
+          run-id: ${{ inputs.reuse_run || github.run_id }}
+          github-token: ${{ github.token }}
+      - name: Committed selector (round-5 trees, the harness's table_selector.json)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh run download 45317894543 -R ${{ github.repository }} -n r5-sel -D frozen
+      - name: Install
+        run: |
+          pip install -r tables/requirements.txt pypdf==6.1.3 scikit-learn==1.7.2 xgboost==3.1.1
+          pip uninstall -y opencv-python opencv-python-headless || true
+          pip install opencv-python-headless==5.1.0.95
+      - name: Analysis
+        run: |
+          (cd tables/src && python fetch_models.py grits)
+          echo "pub shards: $(ls pub/*/s*/meta.jsonl 2>/dev/null | wc -l) of 16; priv shards: $(ls tables/work/out/r8/priv/*/priv.jsonl.gz 2>/dev/null | wc -l) of 16"
+          python tables/r8/analyze8.py pub tables/work/out/r8/priv frozen/table_selector.json tfout tables/work/out/r8/report | tail -n 400
+          cat tables/work/out/r8/report/report.md >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: r8-report
+          path: tables/work/out/r8/report/
+          retention-days: 30
