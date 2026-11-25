@@ -20,7 +20,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        target: [fintabnet_c, synfin, pt2, ctdar, wtw, tabrec, lcnet]
+        target: [fintabnet_c, synfin, pt2, ctdar, wtw, tabrec, lcnet, ctdar_exif]
     defaults:
       run:
         shell: bash

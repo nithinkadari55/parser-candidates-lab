@@ -204,3 +204,39 @@ if __name__ == "__main__":
         except Exception as e:
             import traceback; traceback.print_exc()
         sys.stdout.flush()
+
+
+def ctdar_exif():
+    """EXIF orientation of the cTDaR images and whether the answer-key table boxes fit the raw or the turned image,
+    plus ink density inside the table boxes for both readings (counts only)"""
+    from PIL import Image, ImageOps
+    import numpy as np
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    d = os.path.join(WORK, "ctdar")
+    if not os.path.isdir(d): sh(f"git clone -q --depth 1 https://github.com/cndplab-founder/ICDAR2019_cTDaR.git {d}")
+    import prep8
+    imgs = {}
+    for p in glob.glob(os.path.join(d, "**", "*.*"), recursive=True):
+        if os.path.splitext(p)[1].lower() in (".jpg", ".png", ".tiff", ".tif"): imgs.setdefault(os.path.splitext(os.path.basename(p))[0], p)
+    xmls = {}
+    for sub in ("test_ground_truth/TRACKB2", "test_ground_truth/TRACKB1", "training/TRACKB1/ground_truth"):
+        for x in sorted(glob.glob(os.path.join(d, sub, "*.xml"))): xmls.setdefault(os.path.basename(x)[:-4], x)
+    c = collections.Counter(); ink = collections.defaultdict(list)
+    for k in sorted(xmls):
+        kind = "hist" if k.startswith("cTDaR_t0") else "mod"
+        _, tabs = prep8.ctdar_tables(xmls[k])
+        im = Image.open(imgs[k]); o = im.getexif().get(274, 1); c[(kind, "exif", o)] += 1
+        raw = im.convert("L"); tr = ImageOps.exif_transpose(im).convert("L")
+        for name, img in (("raw", raw), ("transposed", tr)):
+            W, H = img.size; a = np.asarray(img) < 128
+            fits = all(tb[2] <= W + 2 and tb[3] <= H + 2 for tb, _ in tabs)
+            c[(kind, name, "fits", fits)] += 1
+            if fits and tabs:
+                ins = np.mean([a[int(tb[1]):int(tb[3]), int(tb[0]):int(tb[2])].mean() for tb, _ in tabs])
+                ink[(kind, name, o)].append(ins / max(1e-6, a.mean()))
+        if c[(kind, "shown")] < 3:
+            c[(kind, "shown")] += 1
+            print(kind, "image", raw.size, "exif", o, "first table box", [round(v) for v in tabs[0][0]] if tabs else None, "cells", len(tabs[0][1]) if tabs else 0,
+                  "grid", (max(x["r"] + x["rs"] for x in tabs[0][1]), max(x["c"] + x["cs"] for x in tabs[0][1])) if tabs else None)
+    for k, v in sorted(c.items(), key=str): print(k, v)
+    for k, v in sorted(ink.items(), key=str): print("ink ratio inside tables / page", k, "n", len(v), "median", round(float(np.median(v)), 2))
