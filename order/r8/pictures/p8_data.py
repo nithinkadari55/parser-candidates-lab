@@ -509,21 +509,23 @@ def hyperbots_stamps(s):
 # ---------------------------------------------------------------- tables
 
 def doclaynet_tables(s):
-    p = hf("docling-project/DocLayNet-v1.1", hf_files("docling-project/DocLayNet-v1.1", r"data/val-00000-")[0])
     per = Counter()
-    for r in parquet_rows(p, ["image", "bboxes", "category_id", "metadata"], batch=8):
-        doc = (r["metadata"] or {}).get("original_filename", "")
-        im = None
-        for b, c in zip(r["bboxes"] or [], r["category_id"] or []):
-            if int(c) != 9 or per[doc] >= 3:
-                continue
-            im = im or img_of(r["image"])
-            x, y, w, h = b
-            cc = crop(im, x, y, x + w, y + h)
-            if cc is not None and s.save(cc, "table_image", doc, extra={"orig_type": r["metadata"].get("doc_category")}):
-                per[doc] += 1
-        if s.full("table_image"):
-            return
+    for f in hf_files("docling-project/DocLayNet-v1.1", r"data/val-"):
+        for r in parquet_rows(hf("docling-project/DocLayNet-v1.1", f), ["image", "bboxes", "category_id", "metadata"],
+                              batch=8):
+            doc = (r["metadata"] or {}).get("original_filename", "")
+            im = None
+            for b, c in zip(r["bboxes"] or [], r["category_id"] or []):
+                if int(c) != 9 or per[doc] >= 10:
+                    continue
+                im = im or img_of(r["image"])
+                x, y, w, h = b
+                cc = crop(im, x, y, x + w, y + h)
+                if cc is not None and s.save(cc, "table_image", doc, extra={"orig_type": r["metadata"].get("doc_category")}):
+                    per[doc] += 1
+            if s.full("table_image"):
+                return
+        print("doclaynet val tables so far", s.count["table_image"], "documents", len(per), flush=True)
 
 
 def pubtabnet(s):
