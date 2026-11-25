@@ -1,0 +1,56 @@
+name: heron-r7-eval
+
+# Re-score round 7 without re-running the models: fix the D4LA / M6Doc ground truth (polygon labels),
+# merge the detections of two heron-r7 runs, and add DocLayNet test per document category from order
+# run 44477997398.
+
+on:
+  workflow_dispatch:
+    inputs:
+      runs:
+        description: "space-separated heron-r7 run ids"
+        default: "45647802556 45648499341"
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  eval:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install numpy==2.4.6 scipy==1.17.1 huggingface_hub==0.35.3 pillow==11.3.0
+      - name: Detections
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p art data dets dln
+          for r in ${{ inputs.runs }}; do gh run download $r -R ${{ github.repository }} -p "r7-*-heron*" -D "prev-$r"; done
+          find prev-* -name "*.jsonl" -exec cp {} art/ \;
+          for ds in d4la m6doc publaynet real; do
+            mkdir -p data/$ds
+            [ -f "art/$ds-pages.jsonl" ] && cp "art/$ds-pages.jsonl" data/$ds/pages.jsonl
+          done
+          cp art/*-heron*.jsonl dets/
+          gh run download 44477997398 -R ${{ github.repository }} -p "layout-heron_int8-*" -p "layout-heron-*" -D dln
+      - name: Ground truth fix
+        run: |
+          python order/layout/r7/r7_fixgt.py d4la data/d4la/pages.jsonl
+          python order/layout/r7/r7_fixgt.py m6doc data/m6doc/pages.jsonl
+      - name: Score
+        run: |
+          python order/layout/r7/r7_eval.py data dets r7.md
+          python order/layout/r7/r7_dln.py dln r7_dln.md
+          cat r7.md r7_dln.md >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: r7-report-fixed
+          path: |
+            r7.md
+            r7_dln.md
