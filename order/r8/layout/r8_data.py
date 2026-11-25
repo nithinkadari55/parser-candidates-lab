@@ -216,23 +216,30 @@ def real2(out, limit):
             ip = os.path.join(out, "img", f"funsd-{len(part):05d}.png")
             img.save(ip)
             part.append(dict(id=f"real:funsd:{r['id']}", img=ip, W=img.size[0], H=img.size[1], gt=None, src="scanned_forms_funsd"))
-    p = hf_hub_download("chainyo/rvl-cdip", "data/test-00000-of-00015.parquet", repo_type="dataset",
-                        local_dir=os.path.join(out, "_hf"))
-    pf = pq.ParquetFile(p)
-    names = None
-    for b in pf.iter_batches(batch_size=32, columns=["image", "label"]):
-        for r in b.to_pylist():
-            if len(part) >= quota["scanned_forms"]:
-                break
-            if r["label"] != 4:  # 'form' in the RVL-CDIP label order
-                continue
-            img = Image.open(io.BytesIO(r["image"]["bytes"])).convert("RGB")
-            ip = os.path.join(out, "img", f"rvlform-{len(part):05d}.png")
-            img.save(ip)
-            part.append(dict(id=f"real:rvlcdip_form:{len(part)}", img=ip, W=img.size[0], H=img.size[1], gt=None,
-                             src="scanned_forms_rvlcdip"))
+    # RVL-CDIP test is sorted by label; read the label column by HTTP range first and fetch only the row groups
+    # that hold "form" pages (label 4 in the dataset's ClassLabel order)
+    from huggingface_hub import HfFileSystem
+    fs = HfFileSystem()
+    for f in sorted(fs.glob("datasets/chainyo/rvl-cdip/data/test-*.parquet")):
         if len(part) >= quota["scanned_forms"]:
             break
+        pf = pq.ParquetFile(fs.open(f, "rb"))
+        for rg in range(pf.num_row_groups):
+            if len(part) >= quota["scanned_forms"]:
+                break
+            if 4 not in set(pf.read_row_group(rg, columns=["label"]).column(0).to_pylist()):
+                continue
+            for r in pf.read_row_group(rg, columns=["image", "label"]).to_pylist():
+                if len(part) >= quota["scanned_forms"]:
+                    break
+                if r["label"] != 4:
+                    continue
+                img = Image.open(io.BytesIO(r["image"]["bytes"])).convert("RGB")
+                ip = os.path.join(out, "img", f"rvlform-{len(part):05d}.png")
+                img.save(ip)
+                part.append(dict(id=f"real:rvlcdip_form:{os.path.basename(f)}:{len(part)}", img=ip, W=img.size[0],
+                                 H=img.size[1], gt=None, src="scanned_forms_rvlcdip"))
+        print("rvl-cdip", os.path.basename(f), "forms so far", len(part), flush=True)
     res += part
     return res
 
