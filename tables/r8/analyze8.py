@@ -410,11 +410,32 @@ def main():
     for t in TYPES:
         sub = [m for m in up if m["type"] == t]
         if sub: P(f"| type: {t} | {len(sub)} | {100 * sum(1 for m in sub if m['lcnet'] != 0) / len(sub):.1f} |")
-    rs = [m for m in META.values() if m.get("rs_theta") and "rs_none" in (m.get("scores") or {}) and "rs_lcnet" in m["scores"] and "tatr" in m["scores"]]
+    gts = [m for m in META.values() if m["set"] in SCAN_SETS and "gt_tatr" in (m.get("scores") or {}) and not m.get("gt_err")]
+    P("\n**Scans on the answer-key crops** (every scan table, found by docling or not; OCR words; no TableFormer here):\n")
+    P("| set | tables | TATR + OCR TEDS-Struct | exact shape % | PP-LCNet turns an upright crop % |"); P("|---|---|---|---|---|")
+    summary["scan_gt_crops"] = {}
+    for st in SCAN_SETS:
+        sub = [m for m in gts if m["set"] == st]
+        if not sub: continue
+        v = mean([S8.value(m["scores"]["gt_tatr"]) for m in sub]); sh = mean([float(bool(m["scores"]["gt_tatr"].get("rc_exact"))) for m in sub])
+        wr = sum(1 for m in sub if m.get("gt_lcnet")) / len(sub)
+        summary["scan_gt_crops"][st] = dict(n=len(sub), teds_s=v, shape=sh, lcnet_wrong=wr)
+        P(f"| {st} | {len(sub)} | {f4(v)} | {pct(sh)} | {100 * wr:.1f} |")
+    P(f"\nAnswer-key crop errors: {sum(1 for m in META.values() if m.get('gt_err'))}.")
+    ur = []
+    for m in gts:
+        a, b = m["scores"].get("gt_tatr"), m["scores"].get("gt_tatr_lcnet")
+        if a and b and S8.value(a) is not None and S8.value(b) is not None:
+            ur.append(dict(bdoc=base_doc(m["doc"]), v=dict(lc=S8.value(b), no=S8.value(a)), shape=dict(lc=float(bool(b.get("rc_exact"))), no=float(bool(a.get("rc_exact"))))))
+    if ur:
+        t4, t5 = boot(ur, "lc", "no", "v"), boot(ur, "lc", "no", "shape")
+        P(f"\nUpright scans, answer-key crops ({len(ur)}): with PP-LCNet − without: TEDS-Struct {fmt_boot(t4, 100)}; shape {fmt_boot(t5, 100, ' pp')}.")
+        summary["lcnet_upright_scans_gt"] = dict(n=len(ur), teds=t4, shape=t5)
+    rs = [m for m in META.values() if m.get("rs_theta") and "rs_none" in (m.get("scores") or {}) and "rs_lcnet" in m["scores"] and "gt_tatr" in m["scores"]]
     if rs:
         acc = sum(1 for m in rs if m["rs_lcnet"] == m["rs_need"]) / len(rs); alt = sum(1 for m in rs if m["rs_lcnet"] == m["rs_theta"]) / len(rs)
-        rr = [dict(bdoc=base_doc(m["doc"]), v=dict(none=S8.value(m["scores"]["rs_none"]), lc=S8.value(m["scores"]["rs_lcnet"]), up=S8.value(m["scores"]["tatr"])),
-                   shape=dict(none=float(bool(m["scores"]["rs_none"].get("rc_exact"))), lc=float(bool(m["scores"]["rs_lcnet"].get("rc_exact"))), up=float(bool(m["scores"]["tatr"].get("rc_exact")))))
+        rr = [dict(bdoc=base_doc(m["doc"]), v=dict(none=S8.value(m["scores"]["rs_none"]), lc=S8.value(m["scores"]["rs_lcnet"]), up=S8.value(m["scores"]["gt_tatr"])),
+                   shape=dict(none=float(bool(m["scores"]["rs_none"].get("rc_exact"))), lc=float(bool(m["scores"]["rs_lcnet"].get("rc_exact"))), up=float(bool(m["scores"]["gt_tatr"].get("rc_exact")))))
               for m in rs]
         rr = [r for r in rr if None not in r["v"].values()]
         P(f"\n**Rotated scans** ({len(rr)} scan tables turned 90/180/270, OCR + TATR on the turned crop): PP-LCNet right on {100 * acc:.1f}% (the opposite-direction reading would be right on {100 * alt:.1f}%, a convention check).\n")
@@ -426,7 +447,7 @@ def main():
     scans = [r for r in rows if r["set"] in SCAN_SETS and r["v"].get("tatr_lcnet") is not None]
     if scans:
         t2 = boot(scans, "tatr_lcnet", "tatr", "v"); t3 = boot(scans, "tatr_lcnet", "tatr", "shape")
-        P(f"\nUpright scans ({len(scans)}, all splits): with PP-LCNet − without: TEDS-Struct {fmt_boot(t2, 100)}; shape {fmt_boot(t3, 100, ' pp')}.")
+        P(f"\nUpright scans on the run-time crops ({len(scans)}, all splits): with PP-LCNet − without: TEDS-Struct {fmt_boot(t2, 100)}; shape {fmt_boot(t3, 100, ' pp')}.")
         summary["lcnet_upright_scans"] = dict(teds=t2, shape=t3)
     rp = [m for m in META.values() if m["set"] == "rotpdf" and m["found"] and not m.get("err") and m.get("truth_turn") is not None]
     if rp:

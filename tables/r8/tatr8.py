@@ -6,7 +6,8 @@
           scans: none (no glyphs) or PP-LCNet_x1_0_doc_ori (official ONNX), turn = its label (counter-clockwise)
   TATR    v1.1 fp16 (Xenova onnx/model_fp16.onnx), 20 px white pad, the round-3/5 preprocessing and postprocessing,
           on the turned crop; cells turned back to the crop
-  rotscan half of the scan tables (fixed by id) also turned 90/180/270 (lossless) to test PP-LCNet on rotated scans
+  scans   also on the answer-key crop of every scan table (found by docling or not): OCR + TATR, PP-LCNet, and for
+          half of them (fixed by id) the crop turned 90/180/270 (lossless), with and without PP-LCNet
 Every arm is scored here (score.py: TEDS, TEDS-Struct, GriTS-Top/Con, exact rows and columns) with the run-time words
 as the text that fills the cells.
 
@@ -137,6 +138,36 @@ def unturn_words(words, turn, w, h):
 
 # ---------- scoring ----------
 
+def gt_crop(M, lc, ocr, s, tid, g, wdir, meta, score_jobs):
+    """scan tables, every one (found by docling or not): OCR + TATR on the answer-key crop, PP-LCNet on it, and for
+    half of them (fixed by id) the crop turned 90/180/270 degrees with and without PP-LCNet"""
+    wj = json.load(open(os.path.join(wdir, s, tid + "__gt.json"), encoding="utf-8"))
+    if "error" in wj: raise RuntimeError("r5words: " + str(wj["error"]))
+    im = Image.open(os.path.join(wdir, s, tid + "__gt.png")).convert("RGB")
+    words = ocr(im); cells, _, _ = tatr(M, im, words, 0)
+    lab, conf = lc(im)
+    meta.update(gt_lcnet=lab, gt_lcnet_conf=conf)
+    score_jobs.append(((tid, "gt_tatr"), g, words, cells))
+    if lab:
+        imL = turn_image(im, lab); wL = ocr(imL); cl, _, _ = tatr(M, imL, wL, 0)
+        score_jobs.append(((tid, "gt_tatr_lcnet"), g, wL, cl))
+    else:
+        score_jobs.append(((tid, "gt_tatr_lcnet"), g, words, cells))
+    if zlib.crc32(("rotscan|" + tid).encode()) % 4 < ROTSCAN_SHARE:
+        theta = [90, 180, 270][zlib.crc32(("theta|" + tid).encode()) % 3]
+        imR = turn_image(im, theta); wR = ocr(imR); cR, _, _ = tatr(M, imR, wR, 0)
+        labR, confR = lc(imR)
+        meta.update(rs_theta=theta, rs_need=(360 - theta) % 360, rs_lcnet=labR, rs_lcnet_conf=confR)
+        score_jobs.append(((tid, "rs_none"), g, wR, cR))
+        if labR == (360 - theta) % 360:
+            score_jobs.append(((tid, "rs_lcnet"), g, words, cells)); meta["rs_lcnet_same_as_upright"] = True
+        elif labR == 0:
+            score_jobs.append(((tid, "rs_lcnet"), g, wR, cR))
+        else:
+            imRL = turn_image(imR, labR); wRL = ocr(imRL); cRL, _, _ = tatr(M, imRL, wRL, 0)
+            score_jobs.append(((tid, "rs_lcnet"), g, wRL, cRL))
+
+
 def _score(job):
     key, gt, words, cells = job
     return key, S8.score_cells(gt, words, cells)
@@ -154,9 +185,10 @@ def main():
     jobs = os.path.join(priv, "jobs.jsonl"); wdir = os.path.join(WORK, "r8words", f"s{shard}")
     with open(jobs, "w", encoding="utf-8") as f:
         for s, tid in mine_keys:
-            r = tf[(s, tid)]
+            r = tf[(s, tid)]; g = load_gt(s, tid)
+            if set_kind(s) == "scan":
+                f.write(json.dumps(dict(set=s, id=tid + "__gt", pdf=os.path.join(SETS, s, g["pdf"]), page=0, crop_pt=g["crop_pt"])) + "\n")
             if not r.get("found"): continue
-            g = load_gt(s, tid)
             f.write(json.dumps(dict(set=s, id=tid, pdf=os.path.join(SETS, s, g["pdf"]), page=0, crop_pt=r["crop_pt_rt"])) + "\n")
     t0 = time.time()
     subprocess.run([words_bin, jobs, wdir], check=True)
@@ -174,6 +206,11 @@ def main():
                     gt_rows=g["tags"].get("rows"), gt_cols=g["tags"].get("cols"), n_span=g["tags"].get("n_span"),
                     found=bool(r.get("found")), match_iou=r.get("match_iou"), ms_tf=r.get("ms_tf"), ms_convert=r.get("ms_convert"),
                     ms_ocr_page_tf=r.get("ms_ocr_page"), tf_err=r.get("err"), has_gt_text=not g["tags"].get("no_gt_text"), cpu=cpu)
+        if set_kind(s) == "scan":
+            try:
+                gt_crop(M, lc, ocr, s, tid, g, wdir, meta, score_jobs)
+            except Exception as e:
+                meta["gt_err"] = repr(e)[:300]; print("answer-key crop error", s, tid, meta["gt_err"], flush=True)
         if not r.get("found"):
             meta_rows.append(meta); continue
         try:
@@ -200,21 +237,6 @@ def main():
                     wset["tatr_lcnet"] = unturn_words(wL, lab, W, H)
                 else:
                     arms["tatr_lcnet"] = cells
-                if zlib.crc32(("rotscan|" + tid).encode()) % 4 < ROTSCAN_SHARE:
-                    theta = [90, 180, 270][zlib.crc32(("theta|" + tid).encode()) % 3]
-                    imR = turn_image(im, theta); wR = ocr(imR)
-                    cR, _, _ = tatr(M, imR, wR, 0)
-                    labR, confR = lc(imR)
-                    meta.update(rs_theta=theta, rs_need=(360 - theta) % 360, rs_lcnet=labR, rs_lcnet_conf=confR)
-                    arms["rs_none"] = cR; wset["rs_none"] = wR
-                    if labR == (360 - theta) % 360:
-                        arms["rs_lcnet"] = cells; meta["rs_lcnet_same_as_upright"] = True
-                    elif labR == 0:
-                        arms["rs_lcnet"] = cR; wset["rs_lcnet"] = wR
-                    else:
-                        imRL = turn_image(imR, labR); wRL = ocr(imRL)
-                        cRL, _, _ = tatr(M, imRL, wRL, 0)
-                        arms["rs_lcnet"] = cRL; wset["rs_lcnet"] = wRL
             else:
                 words = [dict(text=x["text"], bbox=x["bbox"]) for x in wj["words"]]
                 t1 = time.perf_counter()
