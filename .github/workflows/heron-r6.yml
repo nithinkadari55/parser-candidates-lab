@@ -1,0 +1,41 @@
+name: heron-r6
+
+# heron fp32 vs heron INT8 on the same DocLayNet test and OmniDocBench English pages, from the saved
+# detections of order run 44477997398 (both models ran there). Reuses r4_layout_eval.py with the
+# fp32 detections in the slot the script calls "RF-DETR"; the labels are renamed in the report.
+
+on:
+  workflow_dispatch:
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  heron:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install numpy==2.4.6 scipy==1.16.3 huggingface_hub==0.35.3
+      - name: Saved heron fp32 + INT8 detections and GT, OmniDocBench.json
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh run download 44477997398 -R ${{ github.repository }} -p "layout-heron_int8-*" -p "layout-heron-*" -D heron
+          mkdir -p fp32 empty
+          for f in heron/layout-heron-*/layout-heron-*.jsonl; do
+            cp "$f" "fp32/rfdetr-$(basename "$f" .jsonl | sed 's/layout-heron-//').jsonl"
+          done
+          ls heron fp32
+          python -c "from huggingface_hub import hf_hub_download as h; import os; h('opendatalab/OmniDocBench', 'OmniDocBench.json', repo_type='dataset', local_dir=os.path.expanduser('~/odb'))"
+      - name: Compare
+        working-directory: tables/r4
+        run: |
+          python r4_layout_eval.py ../../fp32 ../../heron ../../empty ~/odb/OmniDocBench.json > ../../report.txt 2>&1 || true
+          sed -e 's/RF-DETR-Large (DocLayNet fine-tune)/heron fp32/g' -e 's/RF-DETR/heron fp32/g' -e 's/heron INT8/heron int8/g' ../../report.txt > ../../report.md
+          cat ../../report.md
+          cat ../../report.md >> "$GITHUB_STEP_SUMMARY"
