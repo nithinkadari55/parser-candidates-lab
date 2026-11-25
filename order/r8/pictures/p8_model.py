@@ -118,8 +118,12 @@ def quantize(src, dst, exclude_last=False):
     from onnxruntime.quantization import QuantType, quantize_dynamic
     excl = []
     if exclude_last:
+        # keep the linear head in fp32: the node that writes the graph output and, when that is the bias Add,
+        # the MatMul / Gemm feeding it
         g = onnx.load(src).graph
-        excl = [n.name for n in g.node if g.output[0].name in n.output]
+        prod = {o: n for n in g.node for o in n.output}
+        last = prod[g.output[0].name]
+        excl = [last.name] + [prod[i].name for i in last.input if i in prod and prod[i].op_type in ("MatMul", "Gemm")]
     quantize_dynamic(src, dst, weight_type=QuantType.QInt8, nodes_to_exclude=excl)
     return excl
 

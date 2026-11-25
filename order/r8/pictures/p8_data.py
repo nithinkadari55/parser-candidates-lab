@@ -12,7 +12,6 @@ import sys
 import tarfile
 import time
 import traceback
-import urllib.parse
 import urllib.request
 import zipfile
 from collections import Counter, defaultdict
@@ -553,117 +552,6 @@ def publaynet_tables(s):
             return
 
 
-# ---------------------------------------------------------------- Wikimedia Commons (permissive files only)
-
-WM_CATS = {
-    "chart": [("Bar_charts", "bar"), ("Line_charts", "line"), ("Pie_charts", "pie"), ("Scatterplots", "scatter"),
-              ("Box_plots", "box"), ("Histograms", "bar"), ("Area_charts", None)],
-    "diagram": [("Flowcharts", None), ("Flow_charts", None), ("Block_diagrams", None), ("Circuit_diagrams", None),
-                ("UML_diagrams", None), ("Organizational_charts", None), ("Network_diagrams", None),
-                ("Technical_drawings", None)],
-    "map": [("Topographic_maps", None), ("Choropleth_maps", None), ("Locator_maps", None), ("Road_maps", None),
-            ("Political_maps", None), ("Thematic_maps", None)],
-    "logo": [("SVG_logos", None), ("Logos", None), ("Wordmarks", None), ("Text_logos", None)],
-    "signature": [("SVG_signatures", None), ("Signatures", None), ("Autographs", None)],
-    "screenshot": [("Screenshots", None), ("Screenshots_of_web_browsers", None),
-                   ("Screenshots_of_free_software", None), ("Screenshots_of_GNU/Linux", None)],
-    "stamp": [("Rubber_stamp_impressions", None), ("Stamp_impressions", None), ("Ink_stamps", None)],
-}
-WM_PER_CLASS = 150
-
-
-def wm_ok(lic):
-    l = (lic or "").strip().lower()
-    if any(t in l for t in ("sa", "nc", "nd", "gfdl", "gpl", "fair use", "copyright")):
-        return l.startswith(("public domain", "pd")) and "sa" not in l.split()
-    return l.startswith(("public domain", "pd", "cc0", "cc by", "cc-by"))
-
-
-def wm_api(params, state):
-    url = "https://commons.wikimedia.org/w/api.php?" + urllib.parse.urlencode({"format": "json", **params})
-    while True:
-        wait = 1.0 - (time.time() - state["last"])
-        if wait > 0:
-            time.sleep(wait)
-        state["last"] = time.time()
-        try:
-            return json.loads(fetch_bytes(url, tries=6))
-        except Exception as e:  # noqa: BLE001
-            print("wikimedia api", type(e).__name__, str(e)[:100], flush=True)
-            state["errors"] += 1
-            if state["errors"] > 40:
-                raise
-            time.sleep(20)
-
-
-def wm_files(cat, state, want):
-    out, cont = [], {}
-    while len(out) < want * 4:
-        d = wm_api({"action": "query", "generator": "categorymembers", "gcmtitle": "Category:" + cat,
-                    "gcmtype": "file", "gcmlimit": "50", "prop": "imageinfo", "iiprop": "url|extmetadata|mime|size",
-                    "iiurlwidth": "500", "iiextmetadatafilter": "LicenseShortName", **cont}, state)
-        for p in d.get("query", {}).get("pages", {}).values():
-            ii = (p.get("imageinfo") or [{}])[0]
-            em = ii.get("extmetadata") if isinstance(ii.get("extmetadata"), dict) else {}
-            lic = (em.get("LicenseShortName") or {}).get("value") if isinstance(em.get("LicenseShortName"), dict) else None
-            mime = ii.get("mime")
-            # 500 px is one of Wikimedia's standard thumbnail widths; smaller raster originals are used as they are
-            url = ii.get("url") if mime in ("image/png", "image/jpeg") and 0 < ii.get("width", 0) <= 500 else ii.get("thumburl")
-            if mime in ("image/png", "image/jpeg", "image/svg+xml", "image/gif") and wm_ok(lic) and url:
-                out.append((p["title"], url, lic))
-        if "continue" not in d:
-            break
-        cont = {k: v for k, v in d["continue"].items() if k != "continue"}
-    return out
-
-
-def wikimedia(s):
-    from PIL import Image
-    state = {"last": 0.0, "errors": 0}
-    log = {}
-    t0 = time.time()
-    budget = 60 * 70
-    for label, cats in WM_CATS.items():
-        want = limit(WM_PER_CLASS)
-        files = []
-        for cat, sub in cats:
-            if time.time() - t0 > budget:
-                break
-            try:
-                fs = wm_files(cat, state, want)
-            except Exception as e:  # noqa: BLE001
-                fs = []
-                print("wikimedia category failed", cat, e, flush=True)
-            log[cat] = len(fs)
-            files += [(f, sub) for f in fs]
-        random.Random(10).shuffle(files)
-        seen = set()
-        got = 0
-        for (title, url, lic), sub in files:
-            if got >= want or time.time() - t0 > budget:
-                break
-            if title in seen:
-                continue
-            seen.add(title)
-            wait = 0.5 - (time.time() - state["last"])
-            if wait > 0:
-                time.sleep(wait)
-            state["last"] = time.time()
-            try:
-                im = Image.open(io.BytesIO(fetch_bytes(url, tries=4)))
-                if im.mode in ("RGBA", "LA", "P"):
-                    im = im.convert("RGBA")
-                    bg = Image.new("RGBA", im.size, (255, 255, 255, 255))
-                    bg.alpha_composite(im)
-                    im = bg
-                if s.save(im, label, title, sub if label == "chart" else None, {"licence": lic, "orig_type": title[:80]}):
-                    got += 1
-            except Exception as e:  # noqa: BLE001
-                print("wikimedia file failed", title[:60], type(e).__name__, flush=True)
-        print("wikimedia", label, "saved", got, "of", len(files), "candidates", flush=True)
-    print("wikimedia permissive files per category:", log, flush=True)
-
-
 # ---------------------------------------------------------------- hand-labelled real-document crops
 
 def realdoc(s_dln, s_odb, out):
@@ -708,7 +596,7 @@ FUNCS = {"chartx": chartx, "plotqa": plotqa, "chartqa": chartqa, "ubpmc": ubpmc,
          "imagenette": imagenette, "rico": rico, "screenspot": screenspot, "websight": websight, "logodet": logodet,
          "signverod": signverod, "rf100_signatures": rf100_signatures, "cedar_signatures": cedar_signatures,
          "hyperbots_stamps": hyperbots_stamps, "doclaynet_tables": doclaynet_tables, "pubtabnet": pubtabnet,
-         "publaynet_tables": publaynet_tables, "wikimedia": wikimedia}
+         "publaynet_tables": publaynet_tables}
 for _k, _p in STAMP_SUBS.items():
     FUNCS[_k] = (lambda p: (lambda s: mapo80(s, p)))(_p)
 

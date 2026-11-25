@@ -55,8 +55,6 @@ SOURCES = {
     "doclaynet_tables": ("tables", "CDLA-Permissive-1.0 (DocLayNet v1.1 val Table boxes)", True, "pool"),
     "pubtabnet": ("tables", "CDLA-Permissive-1.0 (HF apoidea/pubtabnet-html validation)", True, "pool"),
     "publaynet_tables": ("tables", "CDLA-Permissive-1.0 (PubLayNet validation Table boxes)", True, "pool"),
-    "wikimedia": ("wikimedia", "Wikimedia Commons files whose licence is public domain, CC0 or CC-BY (no SA/NC/ND)",
-                  True, "pool"),
     "realdoc_doclaynet": ("realdoc", "DocLayNet v1.1 test Picture boxes, hand-labelled (CDLA-Permissive-1.0)",
                           False, "test"),
     "realdoc_omnidocbench": ("realdoc", "OmniDocBench figure boxes, hand-labelled (licence not stated)", False,
