@@ -196,16 +196,6 @@ def lcnet():
     print("card license", (info.card_data or {}).get("license") if info.card_data else None, "sha", info.sha, "files", [x.rfilename for x in info.siblings])
 
 
-if __name__ == "__main__":
-    for w in sys.argv[1:]:
-        print("\n######", w, flush=True)
-        try:
-            globals()[w]()
-        except Exception as e:
-            import traceback; traceback.print_exc()
-        sys.stdout.flush()
-
-
 def ctdar_exif():
     """EXIF orientation of the cTDaR images and whether the answer-key table boxes fit the raw or the turned image,
     plus ink density inside the table boxes for both readings (counts only)"""
@@ -240,3 +230,13 @@ def ctdar_exif():
                   "grid", (max(x["r"] + x["rs"] for x in tabs[0][1]), max(x["c"] + x["cs"] for x in tabs[0][1])) if tabs else None)
     for k, v in sorted(c.items(), key=str): print(k, v)
     for k, v in sorted(ink.items(), key=str): print("ink ratio inside tables / page", k, "n", len(v), "median", round(float(np.median(v)), 2))
+
+
+if __name__ == "__main__":
+    for w in sys.argv[1:]:
+        print("\n######", w, flush=True)
+        try:
+            globals()[w]()
+        except Exception as e:
+            import traceback; traceback.print_exc()
+        sys.stdout.flush()
