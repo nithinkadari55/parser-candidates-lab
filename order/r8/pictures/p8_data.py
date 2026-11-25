@@ -117,7 +117,7 @@ def fetch_bytes(url, tries=5, headers=None, timeout=60):
                 return r.read()
         except Exception as e:  # noqa: BLE001
             code = getattr(e, "code", None)
-            if code in (403, 404, 410):
+            if code in (400, 403, 404, 410):
                 raise
             time.sleep(3 * (k + 1) * (4 if code == 429 else 1))
     raise RuntimeError(f"fetch failed: {url}")
@@ -600,13 +600,17 @@ def wm_files(cat, state, want):
     out, cont = [], {}
     while len(out) < want * 4:
         d = wm_api({"action": "query", "generator": "categorymembers", "gcmtitle": "Category:" + cat,
-                    "gcmtype": "file", "gcmlimit": "50", "prop": "imageinfo", "iiprop": "url|extmetadata|mime",
-                    "iiurlwidth": "512", "iiextmetadatafilter": "LicenseShortName", **cont}, state)
+                    "gcmtype": "file", "gcmlimit": "50", "prop": "imageinfo", "iiprop": "url|extmetadata|mime|size",
+                    "iiurlwidth": "500", "iiextmetadatafilter": "LicenseShortName", **cont}, state)
         for p in d.get("query", {}).get("pages", {}).values():
             ii = (p.get("imageinfo") or [{}])[0]
-            lic = ii.get("extmetadata", {}).get("LicenseShortName", {}).get("value")
-            if ii.get("mime") in ("image/png", "image/jpeg", "image/svg+xml", "image/gif") and wm_ok(lic) and ii.get("thumburl"):
-                out.append((p["title"], ii["thumburl"], lic))
+            em = ii.get("extmetadata") if isinstance(ii.get("extmetadata"), dict) else {}
+            lic = (em.get("LicenseShortName") or {}).get("value") if isinstance(em.get("LicenseShortName"), dict) else None
+            mime = ii.get("mime")
+            # 500 px is one of Wikimedia's standard thumbnail widths; smaller raster originals are used as they are
+            url = ii.get("url") if mime in ("image/png", "image/jpeg") and 0 < ii.get("width", 0) <= 500 else ii.get("thumburl")
+            if mime in ("image/png", "image/jpeg", "image/svg+xml", "image/gif") and wm_ok(lic) and url:
+                out.append((p["title"], url, lic))
         if "continue" not in d:
             break
         cont = {k: v for k, v in d["continue"].items() if k != "continue"}
@@ -660,98 +664,6 @@ def wikimedia(s):
     print("wikimedia permissive files per category:", log, flush=True)
 
 
-# ---------------------------------------------------------------- CVIT (slow server)
-
-DOCFIG = {"line graph": ("chart", "line"), "graph plots": ("chart", None), "bar plot": ("chart", "bar"),
-          "scatter plot": ("chart", "scatter"), "histogram": ("chart", "bar"), "box plot": ("chart", "box"),
-          "pie chart": ("chart", "pie"), "area chart": ("chart", None), "bubble chart": ("chart", None),
-          "polar plot": ("chart", None), "radar chart": ("chart", None), "pareto chart": ("chart", None),
-          "heat map": ("chart", None), "contour plot": ("chart", None), "surface plot": ("chart", None),
-          "vector plot": ("chart", None), "confusion matrix": ("chart", None), "flow chart": ("diagram", None),
-          "block diagram": ("diagram", None), "tree diagram": ("diagram", None), "natural image": ("photo", None),
-          "table": ("table_image", None), "geographic map": ("map", None)}
-
-
-def docfigure(s):
-    from PIL import Image
-    z = zipfile.ZipFile(get("https://cvit.iiit.ac.in/usodi/img/projects/classification/Docfig/DocFigure_dataset.zip",
-                            os.path.join(TMP, "docfig.zip"), tries=30, budget_s=60 * (5 if PROBE else 150)))
-    names = z.namelist()
-    imgs = {os.path.basename(n): n for n in names if n.lower().endswith((".png", ".jpg", ".jpeg", ".gif", ".bmp"))}
-    labels = {}
-    for n in names:
-        if not n.lower().endswith((".txt", ".csv")):
-            continue
-        for line in z.read(n).decode("utf-8", "replace").splitlines():
-            parts = [x.strip() for x in re.split(r"[,\t]", line) if x.strip()]
-            fn = next((x for x in parts if os.path.basename(x) in imgs), None)
-            lab = next((x.lower() for x in parts if x.lower() in DOCFIG), None)
-            if fn and lab:
-                labels[os.path.basename(fn)] = lab
-    print("docfigure labelled", len(labels), Counter(labels.values()), flush=True)
-    by = defaultdict(list)
-    for b, t in sorted(labels.items()):
-        by[t].append(b)
-    rng = random.Random(11)
-    for t in sorted(by):
-        label, sub = DOCFIG[t]
-        xs = by[t][:]
-        rng.shuffle(xs)
-        cap = limit(CAP) // 6 if label == "chart" else limit(CAP) // 2 if label == "diagram" else limit(CAP)
-        for b in xs[:cap]:
-            try:
-                s.save(Image.open(io.BytesIO(z.read(imgs[b]))), label, b, sub, {"orig_type": t})
-            except Exception:  # noqa: BLE001
-                pass
-
-
-IIIT = {"natural_image": "photo", "logo": "logo", "signature": "signature", "table": "table_image"}
-
-
-def iiitar13k(s):
-    from PIL import Image
-    page = fetch_bytes("https://cvit.iiit.ac.in/usodi/iiitar13k.php", tries=6, timeout=120).decode("utf-8", "replace")
-    links = sorted(set(re.findall(r'href="([^"]+)"', page)))
-    print("iiit-ar-13k page links:", [l for l in links if any(k in l.lower() for k in ("zip", "tar", "drive", "download", "data"))])
-    cand = [urllib.parse.urljoin("https://cvit.iiit.ac.in/usodi/", l) for l in links
-            if l.lower().endswith((".zip", ".tar", ".tar.gz", ".tgz", ".rar"))]
-    if not cand:
-        raise RuntimeError("no archive link on the IIIT-AR-13K page (links: %s)" % links[:40])
-    print("iiit-ar-13k archives:", cand, flush=True)
-    import xml.etree.ElementTree as ET
-    for url in cand:
-        if not url.lower().endswith(".zip"):
-            continue
-        zp = get(url, os.path.join(TMP, "iiit", os.path.basename(url)), tries=30, budget_s=60 * (5 if PROBE else 60))
-        z = zipfile.ZipFile(zp)
-        names = z.namelist()
-        imgs = {os.path.splitext(os.path.basename(n))[0]: n for n in names if n.lower().endswith((".jpg", ".png", ".jpeg"))}
-        xmls = [n for n in names if n.lower().endswith(".xml")]
-        print(os.path.basename(url), len(names), "images", len(imgs), "xml", len(xmls), flush=True)
-        random.Random(12).shuffle(xmls)
-        for xn in xmls:
-            stem = os.path.splitext(os.path.basename(xn))[0]
-            if stem not in imgs:
-                continue
-            root = ET.fromstring(z.read(xn))
-            objs = []
-            for o in root.iter("object"):
-                nm = (o.findtext("name") or "").strip().lower()
-                bb = o.find("bndbox")
-                if nm in IIIT and bb is not None:
-                    objs.append((IIIT[nm], *(float(bb.findtext(k)) for k in ("xmin", "ymin", "xmax", "ymax"))))
-            if not objs:
-                continue
-            im = Image.open(io.BytesIO(z.read(imgs[stem]))).convert("RGB")
-            for lab, x0, y0, x1, y1 in objs:
-                if not s.full(lab):
-                    c = crop(im, x0, y0, x1, y1)
-                    if c is not None:
-                        s.save(c, lab, stem)
-            if all(s.full(l) for l in IIIT.values()):
-                return
-
-
 # ---------------------------------------------------------------- hand-labelled real-document crops
 
 def realdoc(s_dln, s_odb, out):
@@ -796,7 +708,7 @@ FUNCS = {"chartx": chartx, "plotqa": plotqa, "chartqa": chartqa, "ubpmc": ubpmc,
          "imagenette": imagenette, "rico": rico, "screenspot": screenspot, "websight": websight, "logodet": logodet,
          "signverod": signverod, "rf100_signatures": rf100_signatures, "cedar_signatures": cedar_signatures,
          "hyperbots_stamps": hyperbots_stamps, "doclaynet_tables": doclaynet_tables, "pubtabnet": pubtabnet,
-         "publaynet_tables": publaynet_tables, "wikimedia": wikimedia, "docfigure": docfigure, "iiitar13k": iiitar13k}
+         "publaynet_tables": publaynet_tables, "wikimedia": wikimedia}
 for _k, _p in STAMP_SUBS.items():
     FUNCS[_k] = (lambda p: (lambda s: mapo80(s, p)))(_p)
 

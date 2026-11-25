@@ -1,8 +1,8 @@
 name: heron-r8
 
 # Round 8, test B: heron fp32 vs heron int8 on layout sets not covered in round 7.
-# Ground truth: ICDAR-2017 POD table subset (Table only), DocBank test sample, IIIT-AR-13K (Table + Picture,
-# if the CVIT server answers). No ground truth: World Bank PDFs, Zenodo slide decks, scanned forms (agreement).
+# Ground truth: ICDAR-2017 POD table subset (Table only), DocBank test sample (Table, Picture, Caption).
+# No ground truth: World Bank PDFs, Zenodo slide decks, scanned forms (agreement).
 # Data stays in job scratch and actions/cache; only page lists, detections and the report are uploaded.
 
 on:
@@ -16,7 +16,7 @@ on:
         default: "1500"
       sets:
         description: "JSON list of sets"
-        default: '["pod2017","docbank","iiitar13k","real2"]'
+        default: '["pod2017","docbank","real2"]'
 
 permissions:
   contents: read
@@ -121,7 +121,7 @@ jobs:
           merge-multiple: true
       - run: |
           mkdir -p data dets
-          for ds in pod2017 docbank iiitar13k real2; do
+          for ds in pod2017 docbank real2; do
             mkdir -p data/$ds
             [ -f "art/$ds-pages.jsonl" ] && cp "art/$ds-pages.jsonl" data/$ds/pages.jsonl
           done

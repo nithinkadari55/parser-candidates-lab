@@ -4,9 +4,9 @@
              ICDAR2017_POD_dataset_supplement; the original Train/Test downloads are gone). Only Table boxes are
              annotated, so only the Table class is scored.
   docbank  : DocBank test pages (500K_test.json MS-COCO boxes, images read by HTTP range from the split
-             image archive on the Hugging Face hub, liminghao1630/DocBank, Apache-2.0).
-  iiitar13k: IIIT-AR-13K annual-report pages (table, figure, natural image, logo, signature boxes) if the CVIT
-             server answers; only Table and Picture are scored (text is not annotated).
+             image archive on the Hugging Face hub, liminghao1630/DocBank, Apache-2.0). Its text and equation
+             boxes come from token labels and do not follow paragraph / display-formula granularity (inline
+             math is labelled equation), so only Table, Picture and Caption are scored.
   real2    : real PDFs / scans without ground truth: World Bank documents (reports, papers), Zenodo slide decks
              (presentations with a CC-BY licence) and scanned forms (FUNSD, RVL-CDIP form class).
 usage: r8_data.py SET OUT [MAX]"""
@@ -28,7 +28,6 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(os.path.dirname(HERE), "pictures"))
 UA = {"User-Agent": "layout-benchmark/1.0 (research test)"}
 DOCBANK = {"table": "Table", "figure": "Picture", "caption": "Caption", "equation": "Formula", "footer": "Page-footer"}
-IIIT = {"table": "Table", "figure": "Picture", "natural_image": "Picture", "logo": "Picture", "signature": "Picture"}
 
 
 def get(url, dest, tries=4, timeout=120):
@@ -124,50 +123,11 @@ def docbank(out, limit):
             x, y, bw, bh = a["bbox"]
             name = cats.get(a["category_id"], "paragraph").lower()
             gt.append([DOCBANK.get(name, "Text"), x * sx, y * sy, (x + bw) * sx, (y + bh) * sy])
-        res.append(dict(id=f"docbank:{im['file_name']}", img=ip, W=w, H=h, gt=gt, src="docbank"))
+        res.append(dict(id=f"docbank:{im['file_name']}", img=ip, W=w, H=h, gt=gt, src="docbank",
+                        eval_classes=["Table", "Picture", "Caption"]))
         if k % 200 == 0:
             print("docbank pages", k, flush=True)
     return res
-
-
-def iiitar13k(out, limit):
-    import zipfile
-    sys.path.insert(0, os.path.join(os.path.dirname(HERE), "pictures"))
-    page = urllib.request.urlopen(urllib.request.Request("https://cvit.iiit.ac.in/usodi/iiitar13k.php", headers=UA),
-                                  timeout=120).read().decode("utf-8", "replace")
-    links = sorted(set(re.findall(r'href="([^"]+)"', page)))
-    print("iiit-ar-13k links:", links, flush=True)
-    cand = [urllib.parse.urljoin("https://cvit.iiit.ac.in/usodi/", l) for l in links if l.lower().endswith(".zip")]
-    test = [u for u in cand if "test" in u.lower()] or cand
-    if not test:
-        raise RuntimeError("no zip link on the IIIT-AR-13K page")
-    res = []
-    for u in test[:1]:
-        zp = os.path.join(out, "_iiit.zip")
-        if not get(u, zp, tries=10, timeout=600):
-            raise RuntimeError("download failed " + u)
-        z = zipfile.ZipFile(zp)
-        names = z.namelist()
-        imgs = {os.path.splitext(os.path.basename(n))[0]: n for n in names if n.lower().endswith((".jpg", ".png", ".jpeg"))}
-        os.makedirs(os.path.join(out, "img"), exist_ok=True)
-        for xn in sorted(n for n in names if n.lower().endswith(".xml")):
-            stem = os.path.splitext(os.path.basename(xn))[0]
-            if stem not in imgs:
-                continue
-            root = ET.fromstring(z.read(xn))
-            gt = []
-            for o in root.iter("object"):
-                nm = (o.findtext("name") or "").strip().lower()
-                bb = o.find("bndbox")
-                if nm in IIIT and bb is not None:
-                    gt.append([IIIT[nm]] + [float(bb.findtext(k)) for k in ("xmin", "ymin", "xmax", "ymax")])
-            ip = os.path.join(out, "img", stem + os.path.splitext(imgs[stem])[1])
-            open(ip, "wb").write(z.read(imgs[stem]))
-            w, h = Image.open(ip).size
-            res.append(dict(id=f"iiitar13k:{stem}", img=ip, W=w, H=h, gt=gt, src="iiitar13k",
-                            eval_classes=["Table", "Picture"]))
-    random.Random(7).shuffle(res)
-    return res[:limit]
 
 
 def render_pdf(p, src, out, res, per_pdf, limit):
@@ -250,6 +210,8 @@ def real2(out, limit):
     for f in ("data/test-00000-of-00001.parquet", "data/train-00000-of-00001.parquet"):
         p = hf_hub_download("nielsr/funsd", f, repo_type="dataset", local_dir=os.path.join(out, "_hf"))
         for r in pq.read_table(p, columns=["id", "image"]).to_pylist():
+            if len(part) >= quota["scanned_forms"] // 2:
+                break
             img = Image.open(io.BytesIO(r["image"]["bytes"])).convert("RGB")
             ip = os.path.join(out, "img", f"funsd-{len(part):05d}.png")
             img.save(ip)
@@ -279,7 +241,7 @@ def main():
     ds, out = sys.argv[1], sys.argv[2]
     lim = int(sys.argv[3]) if len(sys.argv) > 3 else 100000
     os.makedirs(out, exist_ok=True)
-    rows = {"pod2017": pod2017, "docbank": docbank, "iiitar13k": iiitar13k, "real2": real2}[ds](out, lim)
+    rows = {"pod2017": pod2017, "docbank": docbank, "real2": real2}[ds](out, lim)
     with open(os.path.join(out, "pages.jsonl"), "w", encoding="utf-8") as f:
         for r in rows:
             f.write(json.dumps(r) + "\n")

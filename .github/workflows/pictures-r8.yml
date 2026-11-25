@@ -12,7 +12,7 @@ on:
         default: "false"
       groups:
         description: "JSON list of data groups"
-        default: '["charts","ubpmc","scicap","diagrams","photos","screens","logosig","stamps","tables","wikimedia","cvit","realdoc"]'
+        default: '["charts","ubpmc","scicap","diagrams","photos","screens","logosig","stamps","tables","wikimedia","realdoc"]'
 
 permissions:
   contents: read
@@ -124,10 +124,6 @@ jobs:
         with:
           path: /home/runner/p8/wikimedia
           key: p8-wikimedia-${{ inputs.probe }}-${{ hashFiles('order/r8/pictures/p8_data.py', 'order/r8/pictures/p8_common.py', 'order/r8/pictures/httpzip.py', 'order/r8/pictures/realdoc_labels.jsonl') }}
-      - uses: actions/cache/restore@v4
-        with:
-          path: /home/runner/p8/cvit
-          key: p8-cvit-${{ inputs.probe }}-${{ hashFiles('order/r8/pictures/p8_data.py', 'order/r8/pictures/p8_common.py', 'order/r8/pictures/httpzip.py', 'order/r8/pictures/realdoc_labels.jsonl') }}
       - uses: actions/cache/restore@v4
         with:
           path: /home/runner/p8/realdoc

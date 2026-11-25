@@ -14,10 +14,9 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(
                                 "layout", "r7"))
 from r7_eval import CLASSES, agree, ap_stats, boot, gts, load, page_f1, preds, wil  # noqa: E402
 
-SETS = ("pod2017", "docbank", "iiitar13k", "real2")
+SETS = ("pod2017", "docbank", "real2")
 TITLES = {"pod2017": "ICDAR-2017 POD (scientific papers; table subset, Table boxes only)",
-          "docbank": "DocBank test sample (arXiv papers, weakly supervised boxes)",
-          "iiitar13k": "IIIT-AR-13K (annual reports; Table and Picture boxes only)",
+          "docbank": "DocBank test sample (arXiv papers; Table, Picture and Caption scored)",
           "real2": "Real PDFs and scans without ground truth"}
 
 
@@ -72,7 +71,10 @@ def main():
         P("|---|---|---|---|---|---|")
         classes = partial or CLASSES
         res = {}
-        for cls in classes + ([] if partial else ["Any"]):
+        shown = classes + ([] if partial else ["Any"])
+        if partial and ds == "docbank":
+            shown = shown + [c for c in CLASSES if c not in classes]
+        for cls in shown:
             ag = cls == "Any"
             pa = [(gts(p, ag), preds(f32[p["id"]], ag)) for p in ids]
             pb = [(gts(p, ag), preds(i8[p["id"]], ag)) for p in ids]
@@ -81,8 +83,9 @@ def main():
             if not a:
                 continue
             res[cls] = (a, b)
-            P(f"| {cls} | {a['ngt']} | {a['map']:.3f} | {b['map']:.3f} | {a['map50']:.3f} | {b['map50']:.3f} |")
-        cl = [c for c in res if c != "Any"]
+            tag = "" if cls in classes or cls == "Any" else " (not scored: GT granularity differs)"
+            P(f"| {cls}{tag} | {a['ngt']} | {a['map']:.3f} | {b['map']:.3f} | {a['map50']:.3f} | {b['map50']:.3f} |")
+        cl = [c for c in res if c != "Any" and c in classes]
         m32 = float(np.mean([res[c][0]["map"] for c in cl]))
         m8 = float(np.mean([res[c][1]["map"] for c in cl]))
         if len(cl) > 1:

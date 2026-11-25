@@ -74,11 +74,12 @@ def macro(S, present):
     return np.nanmean(f1, axis=-1), f1
 
 
-def evaluate(items, arms, seed=0):
-    """macro-F1 with 95% cluster-bootstrap CI for each arm (same resamples for all arms) and per-class F1"""
+def evaluate(items, arms, seed=0, min_n=1):
+    """macro-F1 with 95% cluster-bootstrap CI for each arm (same resamples for all arms) and per-class F1;
+    macro over the classes with at least MIN_N labelled crops in the set"""
     if not items:
         return {}
-    present = np.array([any(m["label"] == c for m in items) for c in CLASSES])
+    present = np.array([sum(m["label"] == c for m in items) >= min_n for c in CLASSES])
     mats = {a: counts(items, a) for a in arms}
     G = next(iter(mats.values())).shape[0]
     rng = np.random.default_rng(seed)
@@ -132,11 +133,12 @@ def main():
                 arms.append(a)
     pool = [m for m in all_items if SOURCES[m["src"]][3] == "pool"]
     real = [m for m in all_items if SOURCES[m["src"]][3] == "test"]
-    paper = [m for m in all_items if m["src"] in ("ubpmc", "scicap", "docfigure", "iiitar13k")]
+    paper = [m for m in all_items if m["src"] in ("ubpmc", "scicap")]
     sets = {"pool": pool, "realdoc": real, "realdoc_doclaynet": [m for m in real if m["src"] == "realdoc_doclaynet"],
             "realdoc_omnidocbench": [m for m in real if m["src"] == "realdoc_omnidocbench"],
             "paper_sources": paper}
-    E = {k: evaluate(v, [a for a in arms if all(a in m["pred"] for m in v)] if v else []) for k, v in sets.items()}
+    E = {k: evaluate(v, [a for a in arms if all(a in m["pred"] for m in v)] if v else [],
+                     min_n=10 if k.startswith("realdoc") else 1) for k, v in sets.items()}
 
     L = []
     P = L.append
@@ -208,7 +210,7 @@ def main():
     table("realdoc", "Real-document picture crops (DocLayNet test + OmniDocBench, hand-labelled, never trained on)")
     table("realdoc_doclaynet", "  of which DocLayNet test pictures")
     table("realdoc_omnidocbench", "  of which OmniDocBench figures")
-    table("paper_sources", "Figures cropped from real papers with source labels (UB-PMC, SciCap, DocFigure, IIIT-AR-13K)")
+    table("paper_sources", "Figures cropped from real papers with source labels (UB-PMC, SciCap)")
 
     # per-source accuracy
     P("\n## Accuracy per held-out source\n")

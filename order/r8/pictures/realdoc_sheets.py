@@ -27,17 +27,28 @@ def fetch(url, tries=10):
     raise RuntimeError(url)
 
 
+SRC = {}
+
+
+def prefetch_dln(items):
+    """signed image URLs of the needed DocLayNet test rows, fetched in blocks of 100 rows"""
+    need = sorted({it["row"] for it in items if it["src"] == "doclaynet_test"})
+    for blk in sorted({r // 100 * 100 for r in need}):
+        d = json.loads(fetch("https://datasets-server.huggingface.co/rows?dataset=docling-project/DocLayNet-v1.1"
+                             f"&config=default&split=test&offset={blk}&length=100"))
+        for k, r in enumerate(d["rows"]):
+            SRC[blk + k] = (r["row"]["metadata"]["page_hash"], r["row"]["image"]["src"])
+
+
 def page_image(it, cache):
     key = it.get("page_hash") or os.path.basename(it["image"])
     p = os.path.join(cache, "pages", key + (".jpg" if it["src"] == "doclaynet_test" else ""))
     if not os.path.exists(p):
         os.makedirs(os.path.dirname(p), exist_ok=True)
         if it["src"] == "doclaynet_test":
-            d = json.loads(fetch("https://datasets-server.huggingface.co/rows?dataset=docling-project/DocLayNet-v1.1"
-                                 f"&config=default&split=test&offset={it['row']}&length=1"))
-            row = d["rows"][0]["row"]
-            assert row["metadata"]["page_hash"] == it["page_hash"]
-            data = fetch(row["image"]["src"])
+            ph, url = SRC[it["row"]]
+            assert ph == it["page_hash"]
+            data = fetch(url)
         else:
             data = fetch("https://huggingface.co/datasets/opendatalab/OmniDocBench/resolve/main/images/"
                          + urllib.request.quote(os.path.basename(it["image"])))
@@ -51,6 +62,9 @@ def main():
     items = [json.loads(x) for x in open(boxes, encoding="utf-8") if x.strip()]
     os.makedirs(sheets, exist_ok=True)
 
+    missing = [it for it in items if it["src"] == "doclaynet_test" and not os.path.exists(
+        os.path.join(cache, "pages", it["page_hash"] + ".jpg"))]
+    prefetch_dln(missing)
     first = {}
     for it in items:
         first.setdefault(it.get("page_hash") or it["image"], it)
