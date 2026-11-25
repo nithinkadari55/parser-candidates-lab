@@ -12,6 +12,7 @@ on:
   push:
     paths:
       - "order/**"
+      - "!order/layout/r7/**"
       - ".github/workflows/order.yml"
 
 permissions:
