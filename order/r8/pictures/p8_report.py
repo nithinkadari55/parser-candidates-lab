@@ -74,12 +74,13 @@ def macro(S, present):
     return np.nanmean(f1, axis=-1), f1
 
 
-def evaluate(items, arms, seed=0, min_n=1):
+def evaluate(items, arms, seed=0, min_n=1, only=None):
     """macro-F1 with 95% cluster-bootstrap CI for each arm (same resamples for all arms) and per-class F1;
     macro over the classes with at least MIN_N labelled crops in the set"""
     if not items:
         return {}
-    present = np.array([sum(m["label"] == c for m in items) >= min_n for c in CLASSES])
+    present = np.array([sum(m["label"] == c for m in items) >= min_n and (only is None or c in only)
+                        for c in CLASSES])
     mats = {a: counts(items, a) for a in arms}
     G = next(iter(mats.values())).shape[0]
     rng = np.random.default_rng(seed)
@@ -139,6 +140,13 @@ def main():
             "paper_sources": paper}
     E = {k: evaluate(v, [a for a in arms if all(a in m["pred"] for m in v)] if v else [],
                      min_n=10 if k.startswith("realdoc") else 1) for k, v in sets.items()}
+    # classes that come from at least two pool sources: only for these does leaving a source out still leave
+    # training data of the class (single-source classes score 0 for the heads by construction)
+    src_per_class = defaultdict(set)
+    for m in pool:
+        src_per_class[m["label"]].add(m["src"])
+    multi = [c for c in CLASSES if len(src_per_class[c]) >= 2]
+    E["pool_multisource"] = evaluate(pool, [a for a in arms if all(a in m["pred"] for m in pool)], only=multi)
 
     L = []
     P = L.append
@@ -187,8 +195,11 @@ def main():
             P(f"\n### {title}: no items\n")
             return
         P(f"\n### {title}: {e['_n']} crops, {e['_groups']} groups\n")
-        P("Class counts: " + ", ".join(f"{c} {n}" for c, n in e["_class_n"].items() if n) + "\n")
-        cl = [c for c in CLASSES if e["_class_n"][c]]
+        cl = [c for c in CLASSES if e["_class_n"][c] >= (10 if name.startswith("realdoc") else 1)
+              and (name != "pool_multisource" or c in multi)]
+        P("Class counts: " + ", ".join(f"{c} {n}" for c, n in e["_class_n"].items() if n)
+          + ("; macro-F1 over: " + ", ".join(cl) if name.startswith("realdoc") or name == "pool_multisource" else "")
+          + "\n")
         P("| arm | macro-F1 [95% CI] | accuracy | " + " | ".join(cl) + " |")
         P("|---|---|---|" + "---|" * len(cl))
         for a in [x for x in arms if x in e]:
@@ -207,6 +218,7 @@ def main():
 
     P("\n## Results\n")
     table("pool", "Held-out sources (leave-one-source-out, all pool sources)")
+    table("pool_multisource", "Held-out sources, classes with at least two sources (" + ", ".join(multi) + ")")
     table("realdoc", "Real-document picture crops (DocLayNet test + OmniDocBench, hand-labelled, never trained on)")
     table("realdoc_doclaynet", "  of which DocLayNet test pictures")
     table("realdoc_omnidocbench", "  of which OmniDocBench figures")
