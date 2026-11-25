@@ -1,0 +1,92 @@
+name: heron-r7
+
+# Round 7: heron fp32 vs heron int8 on more layout data before switching the harness default.
+# Ground truth: D4LA test (12 document types, scans), M6Doc test (textbooks, magazines, newspapers,
+# exams; class-agnostic), PubLayNet validation (scientific). No ground truth: real PDF pages from
+# docling.rs's test corpus, recent arXiv papers and Federal Register documents (model agreement).
+
+on:
+  workflow_dispatch:
+    inputs:
+      limit:
+        description: "pages per ground-truth set"
+        default: "3000"
+      real_limit:
+        description: "real PDF pages"
+        default: "2500"
+
+permissions:
+  contents: read
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 240
+    strategy:
+      fail-fast: false
+      max-parallel: 8
+      matrix:
+        ds: [d4la, m6doc, publaynet, real]
+        model: [heron, heron_int8]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install -r order/requirements-core.txt onnxruntime==1.32.0 pypdfium2==5.15.2 pyarrow==21.0.0
+      - id: dlrs
+        uses: actions/cache/restore@v4
+        with:
+          path: /home/runner/dlrs
+          key: dlrs-2.84.0-models-v1
+      - if: steps.dlrs.outputs.cache-hit != 'true'
+        run: |
+          pip install docling-rs==2.84.0
+          python -c "from docling_rs import models as m; m.download_models(dest='/home/runner/dlrs', progress=False, enrichment=False)"
+      - run: ls -la /home/runner/dlrs/models | grep -i heron
+      - name: Data
+        run: |
+          lim=${{ inputs.limit }}; [ "${{ matrix.ds }}" = "real" ] && lim=${{ inputs.real_limit }}
+          python order/layout/r7/r7_data.py ${{ matrix.ds }} "$RUNNER_TEMP/data/${{ matrix.ds }}" "$lim"
+      - name: Layout
+        run: |
+          mkdir -p out
+          cp "$RUNNER_TEMP/data/${{ matrix.ds }}/pages.jsonl" "out/${{ matrix.ds }}-pages.jsonl"
+          python order/layout/r7/r7_run.py ${{ matrix.model }} "$RUNNER_TEMP/data/${{ matrix.ds }}/pages.jsonl" 0 1 "out/${{ matrix.ds }}-${{ matrix.model }}-0.jsonl"
+          wc -l out/*.jsonl
+      - uses: actions/upload-artifact@v4
+        with:
+          name: r7-${{ matrix.ds }}-${{ matrix.model }}
+          path: out/
+          retention-days: 14
+
+  eval:
+    needs: run
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install numpy==2.4.6 scipy==1.17.1
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: r7-*
+          path: art
+          merge-multiple: true
+      - run: |
+          mkdir -p data dets
+          for ds in d4la m6doc publaynet real; do
+            mkdir -p data/$ds
+            [ -f "art/$ds-pages.jsonl" ] && cp "art/$ds-pages.jsonl" data/$ds/pages.jsonl
+          done
+          cp art/*-heron*.jsonl dets/ || true
+          python order/layout/r7/r7_eval.py data dets r7.md
+          cat r7.md >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: r7-report
+          path: r7.md
