@@ -58,7 +58,7 @@ def fetch(name):
         elif spec.startswith("gdrive:"):
             out = dst + ".download"
             subprocess.run([sys.executable, "-m", "gdown", "--fuzzy", "-q", "-O", out, "https://drive.google.com/uc?id=" + spec[7:]], check=True)
-            if zipfile.is_zipfile(out):
+            if zipfile.is_zipfile(out) and not rel.endswith((".pth", ".pt")):
                 os.makedirs(dst, exist_ok=True); zipfile.ZipFile(out).extractall(dst); os.remove(out)
             else:
                 os.replace(out, dst)

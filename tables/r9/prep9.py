@@ -10,7 +10,7 @@
 All are image-only pages (OCR words at run time). Downloads stay in the job's scratch directory; only the derived
 sets are kept, in an Actions cache. Logs print counts and ids only, never table text.
 usage: prep9.py NAME"""
-import os, sys, io, re, json, glob, random, zipfile, collections
+import os, sys, io, re, json, glob, random, zipfile, collections, time
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 from common9 import *
@@ -21,10 +21,45 @@ from PIL import Image, ImageOps
 Image.MAX_IMAGE_PIXELS = None
 LIMIT = int(os.environ.get("TB_LIMIT") or 0)
 SCRATCH = P8.SCRATCH
-TARGET = dict(pulse=0, rdtb=0, odb=0, tabreczh=1500, mustard=0, iflytab=1500, cisol=0)  # 0 = every table
+TARGET = dict(pulse=0, rdtb=0, odb=0, tabreczh=1500, mustard=0, iflytab=1000, cisol=0)  # 0 = every table
 REV = {"pulse-ai/PulseBench-Tab": "e0e1fd5c4b3f7daa0c6afed88177ed9242e6593d", "reducto/rd-tablebench": "7748503e2bd5f210d27aa2ef5fdf4b8aa13099bb",
        "opendatalab/OmniDocBench": "aa1ee96d106dbe53d0ae59474d75c6e6d9b53fec", "badrivishalk/MUSTARD": None,
        "gvl610/iFLYTAB": None, "bevaya/CISOL": "9904c5193b0d05d83437bad3fb3456efb9ba8c57"}
+
+
+def hf_list(repo, path, rev="main"):
+    """file paths under path (dataset repo), via the tree API"""
+    import urllib.request, urllib.parse
+    out = []; url = f"https://huggingface.co/api/datasets/{repo}/tree/{rev}/{urllib.parse.quote(path)}?recursive=true&limit=1000"
+    while url:
+        for k in range(8):
+            try:
+                r = urllib.request.urlopen(urllib.request.Request(url, headers={"User-Agent": "table-bench/1.0"}), timeout=120); break
+            except Exception as e:
+                print("list retry", k, repr(e)[:120], flush=True); time.sleep(30 * (k + 1))
+        out += [x["path"] for x in json.load(r) if x.get("type") == "file"]
+        nxt = re.search(r'<([^>]+)>;\s*rel="next"', r.headers.get("Link", "") or "")
+        url = nxt.group(1) if nxt else None
+    return out
+
+
+def hf_files(repo, paths, root, rev="main"):
+    """download dataset files one by one with pacing and back-off (anonymous runners get HTTP 429 from
+    snapshot_download on repos with thousands of files)"""
+    import urllib.parse
+    for i, p in enumerate(paths):
+        dst = os.path.join(root, p)
+        if os.path.exists(dst): continue
+        url = f"https://huggingface.co/datasets/{repo}/resolve/{rev}/{urllib.parse.quote(p)}"
+        for k in range(10):
+            try:
+                get(url, dst, tries=1); break
+            except Exception as e:
+                time.sleep(20 * (k + 1))
+        else:
+            raise RuntimeError("download failed: " + p)
+        time.sleep(0.12)
+        if i % 500 == 0: print("hf files", i, len(paths), flush=True)
 
 
 def target(name):
@@ -131,7 +166,7 @@ def prep_odb():
     print("odb pages", len(js), "table blocks kept", len(tabs), dict(attrs), "block keys", dict(keys_seen), flush=True)
     tabs = take(sorted(tabs, key=lambda x: (x[0], x[1])), "odb")
     need = sorted({t[0] for t in tabs})
-    snapshot_download("opendatalab/OmniDocBench", repo_type="dataset", revision=rev, local_dir=root, allow_patterns=["images/" + n for n in need])
+    hf_files("opendatalab/OmniDocBench", ["images/" + n for n in need], root, rev)
     w = Writer("odb"); src = collections.Counter()
     for img, k, d, pa in tabs:
         tid = "odb_" + safe(os.path.splitext(img)[0])[:70] + f"_b{k}"
@@ -143,7 +178,8 @@ def prep_odb():
             a = d.get("attribute") or {}
             ds = pa.get("data_source", "")
             src[ds] += 1
-            lang = {"table_en": "en", "table_simplified_chinese": "zh", "table_en_ch_mixed": "zh/en"}.get(a.get("language"), str(a.get("language") or pa.get("language") or ""))
+            lang = {"table_en": "en", "table_simplified_chinese": "zh", "table_en_ch_mixed": "zh/en", "english": "en", "simplified_chinese": "zh",
+                    "en_ch_mixed": "zh/en"}.get(a.get("language"), str(a.get("language") or pa.get("language") or ""))
             meta = {k2: a.get(k2) for k2 in ("table_layout", "with_span", "line", "include_equation", "include_background", "include_photo") if k2 in a}
             meta["data_source"] = ds
             crop_page(w, tid, os.path.splitext(img)[0], im, box, toks, cells, r9type=ODB_TYPE.get(ds, "scientific"), lang=lang, src_meta=meta)
@@ -229,12 +265,13 @@ def otsl_cells(seq):
 def prep_mustard():
     from huggingface_hub import snapshot_download
     root = os.path.join(SCRATCH, "mustard")
-    snapshot_download("badrivishalk/MUSTARD", repo_type="dataset", local_dir=root, allow_patterns=["testset/*", "testset/**"])
+    hf_files("badrivishalk/MUSTARD", ["testset/merged.txt"], root)
     lab = {}
     for line in open(os.path.join(root, "testset", "merged.txt"), encoding="utf-8"):
         parts = line.strip().split()
         if len(parts) >= 2: lab[parts[0]] = parts[-1]
     keys = take(sorted(lab), "mustard")
+    hf_files("badrivishalk/MUSTARD", ["testset/" + k for k in keys], root)
     print("mustard labels", len(lab), "used", len(keys), "groups", dict(collections.Counter("/".join(k.split("/")[:2]) for k in keys)), flush=True)
     w = Writer("mustard")
     for k in keys:
@@ -295,10 +332,12 @@ def bands_grid(rows, cols, spans, header_rows=0):
 def prep_iflytab():
     from huggingface_hub import snapshot_download
     root = os.path.join(SCRATCH, "iflytab")
-    snapshot_download("gvl610/iFLYTAB", repo_type="dataset", local_dir=root, allow_patterns=["original/val/**"])
-    js = sorted(glob.glob(os.path.join(root, "original", "val", "**", "*.json"), recursive=True))
+    files = hf_list("gvl610/iFLYTAB", "original/val")
+    js = sorted(p for p in files if p.endswith(".json"))
     rng = random.Random(42); rng.shuffle(js)
-    pick = take(js, "iflytab")
+    pick0 = take(js, "iflytab"); fs = set(files)
+    hf_files("gvl610/iFLYTAB", [p for j in pick0 for p in (j, j[:-5] + ".png", j[:-5] + ".jpg") if p in fs], root)
+    pick = [os.path.join(root, p) for p in pick0]
     print("iflytab val labels", len(js), "used", len(pick), flush=True)
     w = Writer("iflytab"); shown = 0; kinds = collections.Counter()
     for jp in sorted(pick):
@@ -333,7 +372,7 @@ def prep_cisol():
     t = pq.read_table(p); print("cisol columns", t.schema.names, "rows", t.num_rows, flush=True)
     recs = t.to_pylist(); w = Writer("cisol"); shown = False; n = 0
     for r in recs:
-        objs = r.get("objects") or {}
+        objs = r.get("annotations") or r.get("objects") or {}
         if isinstance(objs, dict):
             cats = objs.get("category_name") or objs.get("category") or []; boxes = objs.get("bbox") or []
         else:
@@ -357,7 +396,8 @@ def prep_cisol():
                 toks, cells = bands_grid(rows, cols, spans, header_rows=hr)
                 check_html(toks)
                 if im is None: im = ImageOps.exif_transpose(Image.open(io.BytesIO(r["image"]["bytes"]))).convert("RGB")
-                crop_page(w, tid, r.get("file_name") or tid, im, tb, toks, cells, dict(no_gt_text=True), margin=0.0)
+                crop_page(w, tid, r.get("file_name") or tid, im, tb, toks, cells, dict(no_gt_text=True), margin=0.0,
+                          src_meta=dict(type_tag=r.get("type_tag"), size_tag=r.get("size_tag")))
                 n += 1
             except Exception as e:
                 w.stats["error"] += 1; print("skip", tid, repr(e)[:160])

@@ -9,6 +9,12 @@ on:
       limit:
         description: "tables per new set"
         default: "20"
+      sets:
+        description: "JSON list of new sets to prepare"
+        default: '["pulse", "rdtb", "odb", "tabreczh", "mustard", "iflytab", "cisol"]'
+      groups:
+        description: "JSON list of weight groups"
+        default: '["ae3 rapid paddle_onnx pptable mineru", "mutab_ptn mutab_ftn tablemaster", "lore_wireless lore_ptn lore_wtw", "trace_base trace_wtw", "tableseq"]'
 
 env:
   TB_WORK: ${{ github.workspace }}/tables/work
@@ -24,7 +30,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        name: [pulse, rdtb, odb, tabreczh, mustard, iflytab, cisol]
+        name: ${{ fromJSON(inputs.sets) }}
     defaults:
       run:
         shell: bash
@@ -41,6 +47,7 @@ jobs:
       - name: Prepare (probe)
         env:
           R8_SCRATCH: ${{ runner.temp }}/r9scratch
+          HF_HUB_DISABLE_XET: "1"
         run: |
           python tables/r9/prep9.py ${{ matrix.name }}
           python - <<'EOF'
@@ -62,7 +69,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        group: ["ae3 rapid paddle_onnx pptable mineru", "mutab_ptn mutab_ftn tablemaster", "lore_wireless lore_ptn lore_wtw", "trace_base trace_wtw", "tableseq"]
+        group: ${{ fromJSON(inputs.groups) }}
     defaults:
       run:
         shell: bash

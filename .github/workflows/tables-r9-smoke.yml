@@ -1,0 +1,69 @@
+name: tables-r9-smoke
+
+# Round 9 adapter smoke test: every candidate on a small synthetic bundle with known answers (drawn tables), then
+# scored like a real shard. Logs carry shapes, scores and timings only.
+
+on:
+  workflow_dispatch:
+    inputs:
+      groups:
+        description: "JSON list of {group, models}"
+        default: '[{"group":"ort","models":"tatr rapid_en rapid_zh rapid_plus paddle_slanet paddle_slanet_plus ae3"},{"group":"mineru","models":"mineru"},{"group":"pptable","models":"pptable"},{"group":"paddle2","models":"tablemaster"},{"group":"mmocr","models":"mutab_ptn mutab_ftn"},{"group":"lore","models":"lore_wireless lore_ptn lore_wtw"},{"group":"trace","models":"trace_base trace_wtw"}]'
+
+env:
+  TB_WORK: ${{ github.workspace }}/tables/work
+  PYTHONUNBUFFERED: "1"
+  HF_HUB_DISABLE_PROGRESS_BARS: "1"
+  R9_W: /home/runner/r9w
+  R9_CODE: /home/runner/r9code
+  R9_THREADS: "4"
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJSON(inputs.groups) }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: |
+            3.10
+            3.11
+      - name: Scoring environment
+        run: |
+          python --version
+          pip install -q -r tables/requirements.txt pypdf==6.1.3 gdown==5.2.0
+          pip uninstall -y -q opencv-python opencv-python-headless || true
+          pip install -q opencv-python-headless==5.1.0.95
+          (cd tables/src && python fetch_models.py tatr16)
+      - uses: actions/cache@v4
+        with:
+          path: /home/runner/r9w
+          key: r9w-${{ matrix.group }}-v2
+      - name: Weights
+        run: |
+          for m in ${{ matrix.models }}; do if [ "$m" != tatr ]; then python tables/r9/weights9.py $m; fi; done
+      - name: Model environment
+        run: bash tables/r9/env9.sh ${{ matrix.group }}
+      - name: Synthetic bundle
+        run: python tables/r9/cand9.py synth /tmp/sb
+      - name: Infer and score
+        run: |
+          for m in ${{ matrix.models }}; do
+            echo "=== $m"
+            $R9_PY tables/r9/cand9.py infer $m 0 0 1 /tmp/sb /tmp/out || echo "INFER FAILED $m"
+            if [ -f /tmp/out/$m/cells_s0p0.jsonl.gz ]; then python tables/r9/cand9.py score $m 0 0 /tmp/sb /tmp/out || echo "SCORE FAILED $m"; fi
+            if [ -f /tmp/out/$m/s0p0.jsonl ]; then python -c "
+          import json
+          for l in open('/tmp/out/$m/s0p0.jsonl'):
+              r = json.loads(l); s = r['s'] or {}; so = r['so'] or {}
+              print('$m', r['id'], 'shape', s.get('rows'), s.get('cols'), 'gt', s.get('gt_rows'), s.get('gt_cols'), 'teds_s', s.get('teds_s'), 'teds', s.get('teds'), 'own_teds', so.get('teds'), 'ms', round(r['ms_total'] or 0), 'err', r['err'], 'info', r['info'])
+          "; fi
+          done
