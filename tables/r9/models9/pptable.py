@@ -56,7 +56,8 @@ class PPTable:
         boxes = np.array([[w["bbox"][0], w["bbox"][1], w["bbox"][2], w["bbox"][3]] for w in words], dtype=np.float32).reshape(-1, 4)
         polys = [np.array([[b[0], b[1]], [b[2], b[1]], [b[2], b[3]], [b[0], b[3]]], np.float32) for b in boxes]
         ocr = OcrRes(rec_boxes=boxes.astype(np.int32) if len(boxes) else np.zeros((0, 4), np.int32), rec_texts=[w["text"] for w in words],
-                     rec_scores=[1.0] * len(words), rec_polys=polys, dt_polys=polys, textline_orientation_angles=[-1] * len(words))
+                     rec_scores=[1.0] * len(words), rec_polys=polys, dt_polys=polys, textline_orientation_angles=[-1] * len(words),
+                     doc_preprocessor_res={"output_img": bgr})
         t = time.perf_counter()
         out = list(self.pipe.predict(bgr, use_ocr_model=False, overall_ocr_res=ocr, use_table_orientation_classify=False,
                                      use_ocr_results_with_table_cells=False))
@@ -68,6 +69,8 @@ class PPTable:
         toks, texts = html_tokens(t0.get("pred_html") or "")
         cb = t0.get("cell_box_list")
         cb = [list(map(float, b)) for b in (cb.tolist() if hasattr(cb, "tolist") else (cb or []))]
-        aligned = len(cb) == len(texts) and len(cb) > 0
+        # the pipeline sorts its cell boxes by row before matching, so they need not follow the html cell order:
+        # its html (structure + its own matching of our words) is used, never its boxes
+        aligned = False
         cells = html_cells(toks, cb if aligned else None, texts)
         return cells, ms, {"aligned_boxes": aligned, "n_cells_html": len(texts), "n_boxes": len(cb), "own_text_only": not aligned}

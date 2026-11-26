@@ -77,6 +77,7 @@ def infer(model, shard, part, nparts, bundle, out, share=None):
                                        header=bool(c.get("header")), **({"text": str(c["text"])} if "text" in c else {})) for c in cells],
                            ms_model=float(ms_model), ms_total=ms_total, info=info)
                 times.append(ms_total)
+                if os.environ.get("R9_VERBOSE"): print(model, r["id"], "cells", len(cells), "ms", round(ms_total), flush=True)
             except Exception as e:
                 n_err += 1; rec.update(cells=[], err=repr(e)[:300])
                 if n_err <= 5: traceback.print_exc()

@@ -36,7 +36,7 @@ class MuTab:
     def __init__(self, variant, wdir):
         torch = _torch_cpu()
         repo = os.path.join(CODE, "mutabnet"); sys.path.insert(0, repo); os.chdir(repo)
-        import mutab  # noqa: F401  (registers the model)
+        from mutab import datasets, models  # noqa: F401  (registers the model and the pipeline steps in mmdet)
         from mmcv import Config
         from mmdet.apis import init_detector
         conf = Config.fromfile(os.path.join(repo, "configs", "pubtabnet.py" if variant == "mutab_ptn" else "fintabnet.py"))
@@ -136,10 +136,14 @@ class Lore:
         import cv2
         p = os.path.join(self.tmp, "crop.png"); cv2.imwrite(p, np.asarray(im.convert("RGB"))[:, :, ::-1])
         self.cap.clear()
-        t = time.perf_counter(); self.det.run(self.opt, p); ms = (time.perf_counter() - t) * 1000
+        import torch
+        t = time.perf_counter()
+        with torch.no_grad():
+            self.det.run(self.opt, p)
+        ms = (time.perf_counter() - t) * 1000
         res, logi = self.cap.get("results"), self.cap.get("logi")
         if res is None or logi is None: return [], ms, {}
-        logi = np.asarray(logi.cpu() if hasattr(logi, "cpu") else logi)
+        logi = logi.detach().cpu().numpy() if hasattr(logi, "detach") else np.asarray(logi)
         if logi.ndim == 1: logi = logi[None]
         boxes, lps = [], []
         for m, b in enumerate(res[1]):
@@ -155,6 +159,10 @@ class Trace:
     def __init__(self, variant, wdir):
         torch = _torch_cpu()
         repo = os.path.join(CODE, "trace"); sys.path.insert(0, repo); os.chdir(repo)
+        import torchvision.models.resnet as TVR
+        if not hasattr(TVR, "model_urls"):  # removed in torchvision 0.13; TRACE's basenet imports it (ImageNet init only)
+            TVR.model_urls = {"resnet50": "https://download.pytorch.org/models/resnet50-19c8e357.pth",
+                              "resnet101": "https://download.pytorch.org/models/resnet101-5d3b4d8f.pth"}
         import imgproc, postprocessor
         from model import TraceModel
         from collections import OrderedDict

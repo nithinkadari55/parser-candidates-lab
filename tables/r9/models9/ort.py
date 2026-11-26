@@ -96,20 +96,27 @@ class Ae3:
         self.weights = [os.path.join(repo, "weights", f) for f in os.listdir(os.path.join(repo, "weights")) if f.endswith(".onnx")]
 
     def __call__(self, im, words):
+        """AE3-TL reads whole pages: the crop is pasted, at its own scale, at the top left of a white page of Letter
+        proportions with a 6% margin (same pixels, page context the model was trained on); boxes are moved back"""
         import json
-        ws = self.WM.parse(json.dumps([dict(text=w["text"], bbox=list(w["bbox"])) for w in words]).encode()) if words else []
-        t = time.perf_counter(); pred = self.eng.predict(im.convert("RGB"), ws, im.size); ms = (time.perf_counter() - t) * 1000
+        from PIL import Image
+        W, H = im.size
+        PW = int(max(W / 0.88, H * 0.7727 / 0.88)); PH = int(PW / 0.7727); ox, oy = int(0.06 * PW), int(0.06 * PH)
+        page = Image.new("RGB", (PW, PH), "white"); page.paste(im.convert("RGB"), (ox, oy))
+        ws = self.WM.parse(json.dumps([dict(text=w["text"], bbox=[w["bbox"][0] + ox, w["bbox"][1] + oy, w["bbox"][2] + ox, w["bbox"][3] + oy]) for w in words]).encode()) if words else []
+        t = time.perf_counter(); pred = self.eng.predict(page, ws, page.size); ms = (time.perf_counter() - t) * 1000
         tabs = list(getattr(pred, "tables", []) or [])
         if not tabs: return [], ms, {"n_tables": 0}
-        W, H = im.size
 
         def ov(t):
-            b = t["bbox"]; ix = max(0, min(W, b[2]) - max(0, b[0])); iy = max(0, min(H, b[3]) - max(0, b[1]))
+            b = t["bbox"]; ix = max(0, min(ox + W, b[2]) - max(ox, b[0])); iy = max(0, min(oy + H, b[3]) - max(oy, b[1]))
             return ix * iy
         best = max(tabs, key=ov)
         cells = []
         for c in best["cells"]:
             rs, cs = c["row_nums"], c["column_nums"]
             if not rs or not cs: continue
-            cells.append(dict(r0=min(rs), r1=max(rs) + 1, c0=min(cs), c1=max(cs) + 1, bbox=box4(c["bbox"]), header=bool(c.get("header")), text=c.get("cell_text", "")))
+            b = box4(c["bbox"])
+            cells.append(dict(r0=min(rs), r1=max(rs) + 1, c0=min(cs), c1=max(cs) + 1, bbox=[b[0] - ox, b[1] - oy, b[2] - ox, b[3] - oy],
+                              header=bool(c.get("header")), text=c.get("cell_text", "")))
         return cells, ms, {"n_tables": len(tabs)}

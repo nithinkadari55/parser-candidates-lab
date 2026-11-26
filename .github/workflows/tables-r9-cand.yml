@@ -31,6 +31,9 @@ on:
       limit:
         description: "the base run's limit input"
         default: ""
+      os:
+        description: "runner image"
+        default: "ubuntu-latest"
 
 env:
   TB_WORK: ${{ github.workspace }}/tables/work
@@ -45,7 +48,7 @@ env:
 
 jobs:
   cand:
-    runs-on: ubuntu-latest
+    runs-on: ${{ inputs.os }}
     timeout-minutes: 345
     strategy:
       fail-fast: false
@@ -138,38 +141,42 @@ jobs:
       - uses: actions/cache/restore@v4
         with:
           path: tables/work/data/sets/pulse
-          key: r9set-pulse-v1-L${{ inputs.limit }}-${{ hashFiles('tables/r9/prep9.py', 'tables/r9/common9.py', 'tables/r8/prep8.py') }}
+          key: r9set-pulse-v1-L${{ inputs.limit }}-f2f282aab5460467a300432f0182067f10fc74991a34634fd719a91dcc0d22df
           fail-on-cache-miss: true
       - uses: actions/cache/restore@v4
         with:
           path: tables/work/data/sets/rdtb
-          key: r9set-rdtb-v1-L${{ inputs.limit }}-${{ hashFiles('tables/r9/prep9.py', 'tables/r9/common9.py', 'tables/r8/prep8.py') }}
+          key: r9set-rdtb-v1-L${{ inputs.limit }}-f2f282aab5460467a300432f0182067f10fc74991a34634fd719a91dcc0d22df
           fail-on-cache-miss: true
       - uses: actions/cache/restore@v4
         with:
           path: tables/work/data/sets/odb
-          key: r9set-odb-v1-L${{ inputs.limit }}-${{ hashFiles('tables/r9/prep9.py', 'tables/r9/common9.py', 'tables/r8/prep8.py') }}
+          key: r9set-odb-v1-L${{ inputs.limit }}-f2f282aab5460467a300432f0182067f10fc74991a34634fd719a91dcc0d22df
           fail-on-cache-miss: true
       - uses: actions/cache/restore@v4
         with:
           path: tables/work/data/sets/tabreczh
-          key: r9set-tabreczh-v1-L${{ inputs.limit }}-${{ hashFiles('tables/r9/prep9.py', 'tables/r9/common9.py', 'tables/r8/prep8.py') }}
+          key: r9set-tabreczh-v1-L${{ inputs.limit }}-f2f282aab5460467a300432f0182067f10fc74991a34634fd719a91dcc0d22df
           fail-on-cache-miss: true
       - uses: actions/cache/restore@v4
         with:
           path: tables/work/data/sets/mustard
-          key: r9set-mustard-v1-L${{ inputs.limit }}-${{ hashFiles('tables/r9/prep9.py', 'tables/r9/common9.py', 'tables/r8/prep8.py') }}
+          key: r9set-mustard-v1-L${{ inputs.limit }}-f2f282aab5460467a300432f0182067f10fc74991a34634fd719a91dcc0d22df
           fail-on-cache-miss: true
       - uses: actions/cache/restore@v4
         with:
           path: tables/work/data/sets/iflytab
-          key: r9set-iflytab-v1-L${{ inputs.limit }}-${{ hashFiles('tables/r9/prep9.py', 'tables/r9/common9.py', 'tables/r8/prep8.py') }}
+          key: r9set-iflytab-v1-L${{ inputs.limit }}-f2f282aab5460467a300432f0182067f10fc74991a34634fd719a91dcc0d22df
           fail-on-cache-miss: true
       - uses: actions/cache/restore@v4
         with:
           path: tables/work/data/sets/cisol
-          key: r9set-cisol-v1-L${{ inputs.limit }}-${{ hashFiles('tables/r9/prep9.py', 'tables/r9/common9.py', 'tables/r8/prep8.py') }}
+          key: r9set-cisol-v1-L${{ inputs.limit }}-f2f282aab5460467a300432f0182067f10fc74991a34634fd719a91dcc0d22df
           fail-on-cache-miss: true
+      - uses: actions/cache/restore@v4
+        with:
+          path: tables/work/data/sets/html9
+          key: r9set-html9-v1-L${{ inputs.limit }}-f2f282aab5460467a300432f0182067f10fc74991a34634fd719a91dcc0d22df
       - uses: actions/cache/restore@v4
         with:
           path: tables/work/out/r9/bundle/s${{ matrix.shard }}/rows.jsonl.gz

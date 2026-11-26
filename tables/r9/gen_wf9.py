@@ -6,10 +6,14 @@ ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)
 NSH = 30
 R8H = "hashFiles('tables/r8/prep8.py', 'tables/src/prep_sets.py', 'tables/src/prep_pt2.py', 'tables/src/prep_tabrec.py', 'tables/src/r3_rotate.py')"
 R4H = "hashFiles('tables/r4/r4_sel_prep.py', 'tables/r4/r4_common.py')"
-R9H = "hashFiles('tables/r9/prep9.py', 'tables/r9/common9.py', 'tables/r8/prep8.py')"
+# the round-9 set caches carry a fixed tag (the hashFiles value of the first base run, 45739658679), so later edits of
+# prep9.py / common9.py do not orphan them; bump the tag by hand when a set's content must change
+R9TAG = "f2f282aab5460467a300432f0182067f10fc74991a34634fd719a91dcc0d22df"
+R9H = f"'{R9TAG}'"
 R8SETS = {"ptn": ["ptn"], "pt2": ["pt2"], "ftnc": ["ftnc"], "synfin": ["synfin"], "tabrec": ["tabrec"], "wtw": ["wtw"], "ctdar": ["ctdarm", "ctdarh"], "rotpdf": ["rotpdf"]}
 R4SETS = {"pt": "r4pt", "brgm": "r4brgm", "icdar": "r4icdar", "scitsr": "r4scitsr"}
 R9SETS = ["pulse", "rdtb", "odb", "tabreczh", "mustard", "iflytab", "cisol"]
+OPTIONAL = ["html9"]  # restored when present (prepared after the first base run)
 
 
 def paths(lst, ind):
@@ -19,7 +23,7 @@ def paths(lst, ind):
 
 def key_r8(n): return f"r8set-{n}-v1-L${{{{ inputs.limit }}}}-${{{{ {R8H} }}}}"
 def key_r4(n): return f"r4sel-{n}-v1--${{{{ {R4H} }}}}"
-def key_r9(n): return f"r9set-{n}-v1-L${{{{ inputs.limit }}}}-${{{{ {R9H} }}}}"
+def key_r9(n): return f"r9set-{n}-v1-L${{{{ inputs.limit }}}}-{R9TAG}"
 
 
 def restore(path, key, ind="      ", fail=True):
@@ -33,6 +37,7 @@ def restore_all(ind="      "):
     for n, p in R4SETS.items(): s += restore(f"tables/work/data/sets/{p}", key_r4(n), ind)
     for n, lst in R8SETS.items(): s += restore(paths(lst, ind + "    "), key_r8(n), ind)
     for n in R9SETS: s += restore(f"tables/work/data/sets/{n}", key_r9(n), ind)
+    for n in OPTIONAL: s += restore(f"tables/work/data/sets/{n}", key_r9(n), ind, fail=False)
     return s
 
 
@@ -105,7 +110,7 @@ on:
 {HEAD}
 jobs:
   prep:
-    runs-on: ubuntu-latest
+    runs-on: ${{{{ matrix.name == 'html9' && 'ubuntu-24.04' || 'ubuntu-latest' }}}}
     timeout-minutes: 150
     strategy:
       fail-fast: false
@@ -252,11 +257,14 @@ on:
       limit:
         description: "the base run's limit input"
         default: ""
+      os:
+        description: "runner image"
+        default: "ubuntu-latest"
 
 {HEAD}
 jobs:
   cand:
-    runs-on: ubuntu-latest
+    runs-on: ${{{{ inputs.os }}}}
     timeout-minutes: 345
     strategy:
       fail-fast: false

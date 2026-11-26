@@ -17,10 +17,11 @@ env:
   R9_W: /home/runner/r9w
   R9_CODE: /home/runner/r9code
   R9_THREADS: "4"
+  R9_VERBOSE: "1"
 
 jobs:
   smoke:
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.os || 'ubuntu-latest' }}
     timeout-minutes: 90
     strategy:
       fail-fast: false
@@ -58,7 +59,7 @@ jobs:
         run: |
           for m in ${{ matrix.models }}; do
             echo "=== $m"
-            $R9_PY tables/r9/cand9.py infer $m 0 0 1 /tmp/sb /tmp/out || echo "INFER FAILED $m"
+            timeout 900 $R9_PY tables/r9/cand9.py infer $m 0 0 1 /tmp/sb /tmp/out || echo "INFER FAILED $m"
             if [ -f /tmp/out/$m/cells_s0p0.jsonl.gz ]; then python tables/r9/cand9.py score $m 0 0 /tmp/sb /tmp/out || echo "SCORE FAILED $m"; fi
             if [ -f /tmp/out/$m/s0p0.jsonl ]; then python -c "
           import json
