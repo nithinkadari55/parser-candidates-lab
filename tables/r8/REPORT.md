@@ -42,6 +42,25 @@ Run **45676430603** (workflow `tables-r8`, all jobs green; artifacts `r8-report`
 
 All datasets stay in Actions caches only; artifacts carry no table text.
 
+**Licences for training (milestone 14 review, checked 2026-11-26 at the primary source; `licences14.py`).** Only sets whose licence allows commercial use of derived models may train anything the harness ships; non-commercial, evaluation-only, unlicensed or unknown sets are evaluated on only. The "retrained selector" numbers in this report (and run 45711587938) trained on every set, including the evaluation-only ones, and are withdrawn for shipping; the licence-clean retrain is in `M14.md` (run 45723794511).
+
+| set | dataset | licence | use | primary source> |
+|---|---|---|---|---|
+| r4pt | PubTables-1M (test tables; PMC source PDFs from the KDD 2026 bundle) | CDLA-Permissive-2.0 | training and evaluation | <https://huggingface.co/datasets/bsmock/pubtables-1m> |
+| r4scitsr | SciTSR (test, incl. COMP) | MIT | training and evaluation | <https://github.com/Academic-Hammer/SciTSR> |
+| ptn | PubTabNet (val) | CDLA-Permissive-1.0 (annotations; images under the PMC Open Access terms) | training and evaluation | <https://github.com/ibm-aur-nlp/PubTabNet/blob/master/LICENSE.md> |
+| pt2 | PubTables-v2 (cropped tables, test) | CDLA-Permissive-2.0 | training and evaluation | <https://huggingface.co/datasets/kensho/PubTables-v2> |
+| ftnc | FinTabNet.c (test) | CDLA-Permissive-2.0 | training and evaluation | <https://huggingface.co/datasets/bsmock/FinTabNet.c> |
+| synfin | SynFinTabs (test) | MIT | training and evaluation | <https://huggingface.co/datasets/ethanbradley/synfintabs> |
+| r4brgm | Table-BRGM (Soric et al., arXiv 2511.16134; created and published by the authors) | MIT (dataset card) | training and evaluation | <https://huggingface.co/datasets/marijanic/table-extraction-scientific-datasets> |
+| tabrec | TabRecSet (English part) | CC BY 4.0 (attribution) | training and evaluation | <https://doi.org/10.6084/m9.figshare.20647788.v9> |
+| r4icdar | ICDAR-2013 table competition (corrected, KDD 2026 bundle) | no licence stated by the organisers; evaluation only | evaluation only | <https://huggingface.co/datasets/marijanic/table-extraction-scientific-datasets> |
+| ctdarm | ICDAR-2019 cTDaR modern | no licence file in the repository; evaluation only | evaluation only | <https://github.com/cndplab-founder/ICDAR2019_cTDaR> |
+| ctdarh | ICDAR-2019 cTDaR historical | no licence file in the repository; evaluation only | evaluation only | <https://github.com/cndplab-founder/ICDAR2019_cTDaR> |
+| wtw | WTW (Wired Table in the Wild), test | CC BY-NC 4.0 (non-commercial) | evaluation only | <https://github.com/wangwen-whu/WTW-Dataset> |
+
+Notes: the KDD 2026 bundle's MIT card does not relicense ICDAR-2013 (no organiser licence), so r4icdar stays evaluation-only; Table-BRGM was created by the bundle's authors, whose card is MIT; source documents (PMC Open Access articles, arXiv papers, BRGM reports) keep their own terms. Rotated copies (rotpdf) take their source set's status, and turned tables never train.
+
 ## Method and caveats
 
 - **Arms on the same tables:** tables docling's fp32 layout found (IoU ≥ 0.3 to the answer key), with the harness crop rule (layout box + 4 pt).
