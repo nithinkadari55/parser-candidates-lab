@@ -138,10 +138,10 @@ def main():
             else:
                 x, y = float(bool(r["s"][a].get("rc_exact"))), float(bool(r["s"][b].get("rc_exact")))
             if x is None or y is None: continue
-            pr.append((x - y, r["doc"]))
+            pr.append((x - y, r["doc"], x, y))
         if len(pr) < 5: return None
         res = boot([p[0] for p in pr], [p[1] for p in pr])
-        return dict(n=len(pr), diff=res[0], lo=res[1], hi=res[2])
+        return dict(n=len(pr), diff=res[0], lo=res[1], hi=res[2], a=float(np.mean([p[2] for p in pr])), b=float(np.mean([p[3] for p in pr])))
 
     groups = collections.OrderedDict()
     groups["all"] = rows
@@ -275,9 +275,9 @@ def write_md(out, S, groups):
            "Adopt only if, against the combo: overall TEDS-Struct gain >= 1.0 point with the 95% CI above zero; exact shape not significantly worse; "
            "CI above zero on at least half (and at least 2) of the document types with >= 100 tables and at least half (and at least 3) of the datasets with >= 50 tables; "
            "no document type significantly worse by more than 2 points. Otherwise, a candidate with a >= 1 point CI-positive win on a document type (>= 100 tables) is a possible selector arm.", "",
-           "| candidate | overall TEDS-S | shape | wins: doc types | wins: datasets | big losses | adopt | possible selector arm for |", "|---|---|---|---|---|---|---|---|"]
+           "| candidate | tables | candidate / combo TEDS-S on those tables | overall TEDS-S diff | shape | wins: doc types | wins: datasets | big losses | adopt | possible selector arm for |", "|---|---|---|---|---|---|---|---|---|---|"]
     for a, d in S["decision"].items():
-        md.append(f"| {NAMES.get(a, a)} | {ci(d['overall'])} | {ci(d['shape'])} | {len(d['wins_types'])}/{d['of_types']} | {len(d['wins_sets'])}/{d['of_sets']} | "
+        md.append(f"| {NAMES.get(a, a)} | {d['overall']['n']} | {d['overall']['a']:.4f} / {d['overall']['b']:.4f} | {ci(d['overall'])} | {ci(d['shape'])} | {len(d['wins_types'])}/{d['of_types']} | {len(d['wins_sets'])}/{d['of_sets']} | "
                   f"{', '.join(g[5:] for g in d['big_losses']) or '–'} | {'**yes**' if d['adopt'] else 'no'} | {', '.join(g[5:] for g in d['selector_arm_types']) or '–'} |")
     md += ["", f"Input identity check: {S['input_check']}"]
     if S["repro"]:
