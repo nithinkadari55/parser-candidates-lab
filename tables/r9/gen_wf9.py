@@ -234,7 +234,7 @@ def cand_yml():
     return f"""name: tables-r9-cand
 
 # Round 9 candidates (tables/r9/cand9.py): each shard's crops are re-rendered from the set PDFs (mkbundle9.py, checked
-# against base9's image hash), every model in the group runs on them with the bundle's words and turn, and is scored.
+# against base9's image hash); every model of the plan runs on them with the bundle's words and turn, and is scored.
 # Public artifacts: ids, numbers, cell geometry without text, timings and memory.
 
 on:
@@ -243,11 +243,8 @@ on:
       base_run:
         description: "tables-r9-base run id (its r9priv caches)"
         required: true
-      group:
-        description: "model environment (tables/r9/env9.sh)"
-        required: true
-      models:
-        description: "space-separated models of that environment"
+      plan:
+        description: "group=model model;group=model ... (environments of tables/r9/env9.sh)"
         required: true
       parts:
         description: "JSON list of part numbers"
@@ -268,7 +265,8 @@ on:
         description: "runner image"
         default: "ubuntu-latest"
 
-{HEAD}
+{HEAD}  PLAN: ${{{{ inputs.plan }}}}
+
 jobs:
   cand:
     runs-on: ${{{{ inputs.os }}}}
@@ -298,28 +296,42 @@ jobs:
       - name: Bundle
         run: python tables/r9/mkbundle9.py ${{{{ matrix.shard }}}} tables/work/out/r9/bundle/s${{{{ matrix.shard }}}} tables/r5/words/target/release/r5words
       - uses: actions/cache@v4
-        if: inputs.group == 'lore' || inputs.group == 'trace'
+        if: contains(inputs.plan, 'lore')
         with:
-          path: /home/runner/r9w
-          key: r9w-${{{{ inputs.group }}}}-v3
-      - name: Weights
-        run: python tables/r9/weights9.py ${{{{ inputs.models }}}}
-      - name: Model environment
-        run: bash tables/r9/env9.sh ${{{{ inputs.group }}}}
+          path: |
+            /home/runner/r9w/lore_wireless
+            /home/runner/r9w/lore_ptn
+            /home/runner/r9w/lore_wtw
+          key: r9w-lore-v4
+      - uses: actions/cache@v4
+        if: contains(inputs.plan, 'trace')
+        with:
+          path: |
+            /home/runner/r9w/trace_base
+            /home/runner/r9w/trace_wtw
+          key: r9w-trace-v4
+      - name: Weights and model environments
+        run: |
+          IFS=';' read -ra GS <<< "$PLAN"
+          for it in "${{GS[@]}}"; do g="${{it%%=*}}"; ms="${{it#*=}}"; python tables/r9/weights9.py $ms; bash tables/r9/env9.sh $g; done
       - name: Speed reference (TATR on 30 crops, this machine)
         run: python tables/r9/cand9.py ref tables/work/out/r9/bundle/s${{{{ matrix.shard }}}} /tmp/out/ref ${{{{ matrix.shard }}}}
       - name: Infer and score
         run: |
-          B=tables/work/out/r9/bundle/s${{{{ matrix.shard }}}}
-          for m in ${{{{ inputs.models }}}}; do
-            $R9_PY tables/r9/cand9.py infer $m ${{{{ matrix.shard }}}} ${{{{ matrix.part }}}} ${{{{ inputs.nparts }}}} $B /tmp/out "${{{{ inputs.core }}}}" || echo "INFER FAILED $m"
-            if [ -f /tmp/out/$m/cells_s${{{{ matrix.shard }}}}p${{{{ matrix.part }}}}.jsonl.gz ]; then python tables/r9/cand9.py score $m ${{{{ matrix.shard }}}} ${{{{ matrix.part }}}} $B /tmp/out; fi
-            python tables/r9/cand9.py strip /tmp/out/$m ${{{{ matrix.shard }}}} ${{{{ matrix.part }}}} || true
+          B=tables/work/out/r9/bundle/s${{{{ matrix.shard }}}}; S=${{{{ matrix.shard }}}}; P=${{{{ matrix.part }}}}
+          IFS=';' read -ra GS <<< "$PLAN"
+          for it in "${{GS[@]}}"; do
+            g="${{it%%=*}}"; ms="${{it#*=}}"; pyv="R9_PY_$g"; py="${{!pyv}}"
+            for m in $ms; do
+              $py tables/r9/cand9.py infer $m $S $P ${{{{ inputs.nparts }}}} $B /tmp/out "${{{{ inputs.core }}}}" || {{ echo "INFER FAILED $m"; FAILED=1; }}
+              if [ -f /tmp/out/$m/cells_s${{S}}p${{P}}.jsonl.gz ]; then python tables/r9/cand9.py score $m $S $P $B /tmp/out; python tables/r9/cand9.py strip /tmp/out/$m $S $P; fi
+            done
           done
+          exit ${{FAILED:-0}}
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: r9c-${{{{ inputs.group }}}}-s${{{{ matrix.shard }}}}p${{{{ matrix.part }}}}
+          name: r9c-s${{{{ matrix.shard }}}}p${{{{ matrix.part }}}}
           path: |
             /tmp/out/*/s*.jsonl
             /tmp/out/*/run_s*.json

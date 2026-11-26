@@ -1,13 +1,14 @@
 #!/usr/bin/env bash
-# Round 9 model environments. usage: env9.sh GROUP  -> prints the python to use on the last line of $GITHUB_ENV (R9_PY)
+# Round 9 model environments. usage: env9.sh GROUP  -> a venv /tmp/menv_GROUP; writes R9_PY and R9_PY_GROUP to $GITHUB_ENV
 # Groups: ort (the scoring env itself), mineru, pptable, paddle2 (TableMaster), mmocr (MuTabNet), lore, trace.
 set -euo pipefail
 G="$1"; CODE="${R9_CODE:-$HOME/r9code}"; mkdir -p "$CODE"
-mkvenv() { "$1" -m venv /tmp/menv; /tmp/menv/bin/pip install -q --upgrade pip wheel "setuptools<70"; echo "R9_PY=/tmp/menv/bin/python" >> "$GITHUB_ENV"; }
-P=/tmp/menv/bin/pip
+V=/tmp/menv_$G
+mkvenv() { "$1" -m venv $V; $V/bin/pip install -q --upgrade pip wheel "setuptools<70"; echo "R9_PY=$V/bin/python" >> "$GITHUB_ENV"; echo "R9_PY_$G=$V/bin/python" >> "$GITHUB_ENV"; }
+P=$V/bin/pip
 case "$G" in
   ort)
-    echo "R9_PY=$(command -v python)" >> "$GITHUB_ENV"
+    echo "R9_PY=$(command -v python)" >> "$GITHUB_ENV"; echo "R9_PY_ort=$(command -v python)" >> "$GITHUB_ENV"
     pip install -q defusedxml==0.7.1 ;;
   mineru)
     mkvenv python3.11
@@ -15,7 +16,7 @@ case "$G" in
   pptable)
     mkvenv python3.11
     $P install -q paddlepaddle==3.2.2 paddleocr==3.7.0 lxml
-    $P install -q "paddlex[ocr]==$(/tmp/menv/bin/python -c 'import importlib.metadata as m; print(m.version("paddlex"))')" ;;
+    $P install -q "paddlex[ocr]==$($V/bin/python -c 'import importlib.metadata as m; print(m.version("paddlex"))')" ;;
   paddle2)
     mkvenv python3.10
     $P install -q "numpy<2" paddlepaddle==2.6.2 paddleocr==2.7.3 ;;
@@ -54,4 +55,4 @@ numpy<2
   *) echo "unknown group $G"; exit 1 ;;
 esac
 # every model environment also needs the small helpers cand9.py infer imports
-if [ "$G" != "ort" ]; then /tmp/menv/bin/pip install -q pillow pyyaml; /tmp/menv/bin/pip list 2>/dev/null | grep -iE "^(torch|torchvision|numpy|mmcv|mmdet|mmocr|paddle|onnxruntime|opencv)" || true; fi
+if [ "$G" != "ort" ]; then $V/bin/pip install -q pillow pyyaml; $V/bin/pip list 2>/dev/null | grep -iE "^(torch|torchvision|numpy|mmcv|mmdet|mmocr|paddle|onnxruntime|opencv)" || true; fi
