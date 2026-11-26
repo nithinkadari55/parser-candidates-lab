@@ -21,7 +21,7 @@ from PIL import Image, ImageOps
 Image.MAX_IMAGE_PIXELS = None
 LIMIT = int(os.environ.get("TB_LIMIT") or 0)
 SCRATCH = P8.SCRATCH
-TARGET = dict(pulse=0, rdtb=0, odb=0, tabreczh=1500, mustard=0, iflytab=1000, cisol=0)  # 0 = every table
+TARGET = dict(pulse=0, rdtb=0, odb=0, tabreczh=1500, mustard=0, iflytab=1000, cisol=0, html9=2000)  # 0 = every table
 REV = {"pulse-ai/PulseBench-Tab": "e0e1fd5c4b3f7daa0c6afed88177ed9242e6593d", "reducto/rd-tablebench": "7748503e2bd5f210d27aa2ef5fdf4b8aa13099bb",
        "opendatalab/OmniDocBench": "aa1ee96d106dbe53d0ae59474d75c6e6d9b53fec", "badrivishalk/MUSTARD": None,
        "gvl610/iFLYTAB": None, "bevaya/CISOL": "9904c5193b0d05d83437bad3fb3456efb9ba8c57"}
@@ -403,6 +403,15 @@ def prep_cisol():
                 n += 1
             except Exception as e:
                 w.stats["error"] += 1; print("skip", tid, repr(e)[:160])
+    w.close()
+
+
+# ---------- html9: DailyMed and Federal Register tables rendered by Chromium (html9.py) ----------
+
+def prep_html9():
+    import html9
+    w = Writer("html9")
+    html9.build(w, SCRATCH, target("html9") or 2000, P8.gt_record, grid_html, tags_of, check_html)
     w.close()
 
 

@@ -23,6 +23,7 @@ NEW = {
     "mustard": ("magazines/newspapers", "scan", "MUSTARD (13 languages, Indic scripts + Chinese; printed, scanned, scene)"),
     "iflytab": ("scans/photos", "scan", "iFLYTAB val (camera photos and scans, wired and wireless)"),
     "cisol": ("industrial forms", "scan", "CISOL validation (German steel order lists)"),
+    "html9": ("pharma/medical", "pdf", "DailyMed labels and Federal Register tables rendered to text-layer PDFs (page fragments)"),
 }
 C8.SET_INFO.update(NEW)
 SET_INFO = C8.SET_INFO
@@ -38,7 +39,7 @@ ODB_TYPE = {
 }
 TYPES9 = ["scientific", "financial", "financial/research reports", "government/business", "historical", "scans/photos",
           "rotated", "multilingual filings", "hard real-world", "magazines/newspapers", "education", "slides",
-          "notes/handwriting", "industrial forms"]
+          "notes/handwriting", "industrial forms", "pharma/medical", "legal/regulatory"]
 # sets whose tables trained the milestone-14 selector (licences14.TRAIN members actually used by variant w0)
 SEL_TRAIN = ["r4pt", "r4scitsr", "pt2", "ftnc", "r4brgm", "tabrec"]
 

@@ -44,6 +44,7 @@ jobs:
           pip install -r tables/requirements.txt pypdf==6.1.3
           pip uninstall -y opencv-python opencv-python-headless || true
           pip install opencv-python-headless==5.1.0.95
+          if [ "${{ matrix.name }}" = html9 ]; then pip install -q playwright==1.56.0 && python -m playwright install --with-deps chromium && sudo apt-get install -y -q fonts-liberation fonts-dejavu-core > /dev/null; fi
       - name: Prepare (probe)
         env:
           R8_SCRATCH: ${{ runner.temp }}/r9scratch

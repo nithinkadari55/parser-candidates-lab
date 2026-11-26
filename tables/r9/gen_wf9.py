@@ -132,6 +132,7 @@ jobs:
           pip install -q -r tables/requirements.txt pypdf==6.1.3
           pip uninstall -y -q opencv-python opencv-python-headless || true
           pip install -q opencv-python-headless==5.1.0.95
+          if [ "${{{{ matrix.name }}}}" = html9 ]; then pip install -q playwright==1.56.0 && python -m playwright install --with-deps chromium && sudo apt-get install -y -q fonts-liberation fonts-dejavu-core > /dev/null; fi
       - if: steps.have.outputs.cache-hit != 'true'
         name: Prepare
         env:
