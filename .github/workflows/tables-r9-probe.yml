@@ -1,0 +1,89 @@
+name: tables-r9-probe
+
+# Round 9 probe: new-set preparation on a few tables, candidate weight downloads (sizes, hashes), TableSeq and LORE
+# checkpoint contents, html9 source access. Logs carry counts, ids and sizes only; no artifacts.
+
+on:
+  workflow_dispatch:
+    inputs:
+      limit:
+        description: "tables per new set"
+        default: "20"
+
+env:
+  TB_WORK: ${{ github.workspace }}/tables/work
+  TB_LIMIT: ${{ inputs.limit }}
+  PYTHONUNBUFFERED: "1"
+  HF_HUB_DISABLE_PROGRESS_BARS: "1"
+  R9_W: /home/runner/r9w
+
+jobs:
+  prep:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        name: [pulse, rdtb, odb, tabreczh, mustard, iflytab, cisol]
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install
+        run: |
+          pip install -r tables/requirements.txt pypdf==6.1.3
+          pip uninstall -y opencv-python opencv-python-headless || true
+          pip install opencv-python-headless==5.1.0.95
+      - name: Prepare (probe)
+        env:
+          R8_SCRATCH: ${{ runner.temp }}/r9scratch
+        run: |
+          python tables/r9/prep9.py ${{ matrix.name }}
+          python - <<'EOF'
+          import json, os, collections
+          d = os.path.join(os.environ["TB_WORK"], "data", "sets", "${{ matrix.name }}")
+          ids = json.load(open(os.path.join(d, "index.json")))
+          c = collections.Counter(); sh = []
+          for t in ids:
+              g = json.load(open(os.path.join(d, t + ".json"), encoding="utf-8"))
+              c[(g.get("r9type"), g.get("lang"), g["tags"]["bucket"])] += 1
+              sh.append((g["tags"].get("rows"), g["tags"].get("cols"), g["tags"].get("n_span")))
+          print("tables", len(ids)); print("type/lang/bucket", dict(c)); print("rows/cols/spans first 10", sh[:10])
+          print("pdf bytes", sum(os.path.getsize(os.path.join(d, f)) for f in os.listdir(d) if f.endswith(".pdf")))
+          EOF
+
+  weights:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        group: ["ae3 rapid paddle_onnx pptable mineru", "mutab_ptn mutab_ftn tablemaster", "lore_wireless lore_ptn lore_wtw", "trace_base trace_wtw", "tableseq"]
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install
+        run: pip install huggingface_hub==0.35.3 gdown==5.2.0 torch==2.5.1 --index-url https://download.pytorch.org/whl/cpu --extra-index-url https://pypi.org/simple
+      - name: Download
+        run: python tables/r9/weights9.py ${{ matrix.group }}
+      - name: Checkpoint contents
+        run: |
+          if [ -f $R9_W/tableseq/checkpoints.zip ]; then python tables/r9/probe9.py tableseq $R9_W/tableseq/checkpoints.zip; fi
+          for m in lore_wireless lore_ptn lore_wtw; do if [ -d $R9_W/$m ]; then python tables/r9/probe9.py lore $R9_W/$m; fi; done
+          df -h . | tail -1
+
+  access:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - run: python3 tables/r9/probe9.py access
