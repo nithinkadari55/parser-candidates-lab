@@ -4,14 +4,20 @@ on:
   workflow_dispatch:
     inputs:
       sel_run:
-        description: "tables-r5 run whose r5-sel artifact holds the exported trees"
+        description: "run whose artifact holds the exported trees"
         default: "45317894543"
+      sel_artifact:
+        description: "artifact name (r5-sel for round 5, m14-sel for tables-m14)"
+        default: "r5-sel"
+      fp32:
+        description: "1: fp32 heron layout (round 5); 0: heron int8 (the harness default since milestone 13)"
+        default: "1"
 
 env:
   TB_WORK: ${{ github.workspace }}/tables/work
   PYTHONUNBUFFERED: "1"
   HF_HUB_DISABLE_PROGRESS_BARS: "1"
-  DOCLING_RS_FP32: "1"
+  DOCLING_RS_FP32: ${{ inputs.fp32 }}
 
 jobs:
   corpus:
@@ -54,7 +60,7 @@ jobs:
       - name: Exported trees
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh run download ${{ inputs.sel_run }} -R ${{ github.repository }} -n r5-sel -D sel
+        run: gh run download ${{ inputs.sel_run }} -R ${{ github.repository }} -n ${{ inputs.sel_artifact }} -D sel
       - name: Check
         working-directory: tables/r5
         run: |
