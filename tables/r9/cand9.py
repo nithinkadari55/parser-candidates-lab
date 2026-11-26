@@ -52,6 +52,7 @@ def core(tid, share):
 
 def infer(model, shard, part, nparts, bundle, out, share=None):
     from PIL import Image
+    bundle, out = os.path.abspath(bundle), os.path.abspath(out)  # some adapters chdir into their code
     mod, cls, wgroup = REG[model]
     keep = lambda t: zlib.crc32(("part|" + t).encode()) % nparts == part and (share is None or core(t, share))
     rows = load_rows(bundle, keep)
