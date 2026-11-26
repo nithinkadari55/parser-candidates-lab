@@ -71,7 +71,18 @@ def infer(model, shard, part, nparts, bundle, out, share=None):
                 im = Image.open(os.path.join(bundle, "img", r["id"] + ".png")).convert("RGB"); w, h = im.size; turn = r.get("turn") or 0
                 imt = turn_image(im, turn)
                 wt = [dict(text=x["text"], bbox=turn_box(x["bbox"], turn, w, h) if turn else list(x["bbox"])) for x in r["words"]]
-                t1 = time.perf_counter(); cells, ms_model, info = M(imt, wt); ms_total = (time.perf_counter() - t1) * 1000
+                t1 = time.perf_counter()
+                cap = int(os.environ.get("R9_TABLE_TIMEOUT") or 0)
+                if cap:
+                    import signal
+
+                    def _alarm(*_): raise TimeoutError(f"over {cap} s for one table")
+                    signal.signal(signal.SIGALRM, _alarm); signal.alarm(cap)
+                try:
+                    cells, ms_model, info = M(imt, wt)
+                finally:
+                    if cap: signal.alarm(0)
+                ms_total = (time.perf_counter() - t1) * 1000
                 for c in cells:
                     if turn: c["bbox"] = unturn_box(c["bbox"], turn, w, h)
                 rec.update(cells=[dict(r0=int(c["r0"]), r1=int(c["r1"]), c0=int(c["c0"]), c1=int(c["c1"]), bbox=[float(v) for v in c["bbox"]],

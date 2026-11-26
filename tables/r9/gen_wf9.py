@@ -264,8 +264,12 @@ on:
       os:
         description: "runner image"
         default: "ubuntu-latest"
+      table_timeout:
+        description: "seconds allowed per table (empty = no cap); a table over it counts as a model failure"
+        default: ""
 
 {HEAD}  PLAN: ${{{{ inputs.plan }}}}
+  R9_TABLE_TIMEOUT: ${{{{ inputs.table_timeout }}}}
 
 jobs:
   cand:
