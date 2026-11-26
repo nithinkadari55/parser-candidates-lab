@@ -87,6 +87,9 @@ jobs:
           - name: cisol
             kind: r9
             path: tables/work/data/sets/cisol
+          - name: html9
+            kind: r9
+            path: tables/work/data/sets/html9
     defaults:
       run:
         shell: bash

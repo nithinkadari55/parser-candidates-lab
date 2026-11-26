@@ -87,7 +87,7 @@ DLRS = """      - id: dlrs
 def base_yml():
     shards = ", ".join(str(i) for i in range(NSH))
     prep_inc = "".join(f"          - name: {n}\n            kind: r8\n            path: {paths(l, '              ')}\n" for n, l in R8SETS.items())
-    prep_inc += "".join(f"          - name: {n}\n            kind: r9\n            path: tables/work/data/sets/{n}\n" for n in R9SETS)
+    prep_inc += "".join(f"          - name: {n}\n            kind: r9\n            path: tables/work/data/sets/{n}\n" for n in R9SETS + OPTIONAL)
     pkey = f"${{{{ format('{{0}}set-{{1}}-v1-L{{2}}-{{3}}', matrix.kind, matrix.name, inputs.limit, matrix.kind == 'r8' && {R8H} || {R9H}) }}}}"
     r4 = "".join(restore(f"tables/work/data/sets/{p}", key_r4(n), "      ").replace("      - uses", "      - if: steps.have.outputs.cache-hit != 'true' && matrix.name == 'rotpdf'\n        uses", 1)
                  for n, p in R4SETS.items())
