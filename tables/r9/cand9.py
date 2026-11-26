@@ -94,7 +94,8 @@ def infer(model, shard, part, nparts, bundle, out, share=None):
 def _score_job(job):
     import score8 as S8
     tid, g, words, cells, own = job
-    s = S8.score_cells(g, words, cells) if all(sum(c["bbox"]) != 0 for c in cells) or not own else None
+    # the common words fill the cells by box; a model without usable boxes (all zero) is scored on its own text only
+    s = S8.score_cells(g, words, cells) if (not own or not cells or any(sum(c["bbox"]) != 0 for c in cells)) else None
     so = None
     if own:
         # the model's own cell text: one pseudo-word per cell on a synthetic grid box, so each text lands in its cell

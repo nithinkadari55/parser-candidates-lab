@@ -54,7 +54,9 @@ class MuTab:
         html = out.get("html"); cell = out.get("cell") or []; bbox = out.get("bbox")
         toks = html.split(",") if isinstance(html, str) else list(html or [])
         toks = ["<td></td>" if t.startswith("<eb") else t for t in toks]
-        boxes = [list(map(float, b)) for b in (bbox if bbox is not None else [])]
+        # MuTabNet regresses (centre x, centre y, width, height) in image pixels (TableBboxEncode); -> corners
+        boxes = [[float(b[0]) - float(b[2]) / 2, float(b[1]) - float(b[3]) / 2, float(b[0]) + float(b[2]) / 2, float(b[1]) + float(b[3]) / 2]
+                 for b in (bbox if bbox is not None else [])]
         texts = [c if isinstance(c, str) else "".join(c) for c in cell]
         cells = html_cells(toks, boxes, texts)
         return cells, ms, {"n_tokens": len(toks), "n_boxes": len(boxes), "n_texts": len(texts)}
@@ -97,6 +99,9 @@ LORE_ARGS = {
 }
 
 
+LORE_COLS_FIRST = {"lore_wtw"}  # the WTW checkpoint's logical axes come out as (start col, end col, start row, end row)
+
+
 class Lore:
     """official LORE-TSR code (AlibabaResearch/AdvancedLiterateMachinery, DocumentUnderstanding/LORE-TSR) with the
     official demo settings per checkpoint; DCNv2 replaced by torchvision's deform_conv2d (same weights); the
@@ -114,7 +119,7 @@ class Lore:
                 "--demo", self.tmp, "--demo_name", "r9", "--demo_dir", os.path.join(self.tmp, "vis"), "--output_dir", self.tmp + "/",
                 "--load_model", ck["model"], "--load_processor", ck["processor"]] + extra
         opt = opts().init(argv)
-        self.det = detector_factory[opt.task](opt); self.opt = opt
+        self.det = detector_factory[opt.task](opt); self.opt = opt; self.cols_first = variant in LORE_COLS_FIRST
         self.weights = [ck["model"], ck["processor"]]
         cap = {}
 
@@ -148,7 +153,8 @@ class Lore:
         boxes, lps = [], []
         for m, b in enumerate(res[1]):
             if b[8] > self.opt.vis_thresh and m < len(logi):
-                boxes.append(list(map(float, b[:8]))); lps.append([int(v) for v in logi[m][:4]])
+                lp = [int(v) for v in logi[m][:4]]
+                boxes.append(list(map(float, b[:8]))); lps.append([lp[2], lp[3], lp[0], lp[1]] if self.cols_first else lp)
         return logic_cells(boxes, lps), ms, {"n": len(boxes)}
 
 
