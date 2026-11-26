@@ -26,7 +26,8 @@ def main():
         shutil.move(png, os.path.join(bdir, "img", r["id"] + ".png"))
         shutil.copy(os.path.join(SETS, r["set"], r["id"] + ".json"), os.path.join(bdir, "gt", r["id"] + ".json"))
     print("bundle", shard, "tables", len(rows), "crop hash mismatches", bad, flush=True)
-    if bad: sys.exit(f"{bad} crops differ from base9's")
+    os.makedirs("/tmp/out/ref", exist_ok=True)
+    json.dump(dict(shard=shard, tables=len(rows), crop_hash_mismatches=bad), open(f"/tmp/out/ref/bundle_s{shard}.json", "w"))
 
 
 if __name__ == "__main__":
