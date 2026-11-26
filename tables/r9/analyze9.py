@@ -104,13 +104,16 @@ def main():
         for c in jl(d):
             r = byid.get(c["id"])
             if r is None: continue
+            prev_err = r.setdefault("err", {}).get(model, "absent")
+            if model in r["s"] and prev_err is None and c.get("err"): continue  # keep a good result over a failed retry
             r["s"][model] = c.get("s") or c.get("so") or {"teds_s": 0.0, "teds": 0.0, "rc_exact": False, "fail": True}
             if c.get("so"): r.setdefault("so", {})[model] = c["so"]
             r["ms"][model] = c.get("ms_total")
-            r.setdefault("err", {})[model] = c.get("err")
+            r["err"][model] = c.get("err")
             cands[model] = True
     for p in glob.glob(os.path.join(cand_root, "**", "run_s*.json"), recursive=True):
         j = json.load(open(p))
+        if j.get("n") and j.get("errors", 0) >= j["n"]: continue  # an attempt where every table failed (superseded)
         rp = os.path.join(os.path.dirname(os.path.dirname(p)), "ref", f"ref_s{j['shard']}.json")  # same job, same machine
         if os.path.exists(rp):
             t = json.load(open(rp)).get("tatr_ms") or []
