@@ -81,8 +81,15 @@ def report(name):
     return rows
 
 
+def group_of(name):
+    if name in MODELS: return name
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    from cand9 import REG
+    return REG[name][2]
+
+
 if __name__ == "__main__":
-    for m in sys.argv[1:]:
+    for m in sorted({g for g in map(group_of, sys.argv[1:]) if g}):
         try:
             fetch(m); report(m)
         except Exception as e:

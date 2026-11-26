@@ -143,6 +143,15 @@ def ref(bundle, out, shard):
     print("tatr reference ms median", sorted(ts)[len(ts) // 2] if ts else None, cpu_name(), flush=True)
 
 
+def strip(odir, shard, part):
+    """cells without text (geometry and grid positions only) for the public artifact"""
+    src = os.path.join(odir, f"cells_s{shard}p{part}.jsonl.gz")
+    with gzip.open(src, "rt", encoding="utf-8") as f, gzip.open(os.path.join(odir, f"geom_s{shard}p{part}.jsonl.gz"), "wt", encoding="utf-8") as g:
+        for line in f:
+            r = json.loads(line)
+            g.write(json.dumps(dict(id=r["id"], cells=[{k: v for k, v in c.items() if k != "text"} for c in r.get("cells", [])])) + "\n")
+
+
 def synth(out):
     """four drawn tables with known structure: ruled 4x3, borderless 5x4, ruled with a column span and a row span,
     three-line 6x5; rendered at 144 dpi; words from the drawing positions"""
@@ -185,7 +194,6 @@ def synth(out):
         json.dump(g, open(os.path.join(out, "gt", tid + ".json"), "w")); im.save(os.path.join(out, "img", tid + ".png"))
         words = [dict(text=x["text"], bbox=[v * s for v in x["word"]]) for x in cells]
         rows_out.append(dict(id=tid, set="synth", kind="synth", W=im.size[0], H=im.size[1], scale=s, turn=0, words=words, cells={}))
-    # the ruled table turned 90 degrees (the bundle stores the upright crop's words and turn=90 as the harness would)
     with gzip.open(os.path.join(out, "rows.jsonl.gz"), "wt", encoding="utf-8") as f:
         for r in rows_out: f.write(json.dumps(r) + "\n")
     print("synthetic bundle", len(rows_out), flush=True)
@@ -197,3 +205,4 @@ if __name__ == "__main__":
     elif a[1] == "score": score(a[2], int(a[3]), int(a[4]), a[5], a[6])
     elif a[1] == "ref": ref(a[2], a[3], int(a[4]))
     elif a[1] == "synth": synth(a[2])
+    elif a[1] == "strip": strip(a[2], int(a[3]), int(a[4]))

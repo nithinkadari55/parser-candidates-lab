@@ -46,10 +46,10 @@ jobs:
       - uses: actions/cache@v4
         with:
           path: /home/runner/r9w
-          key: r9w-${{ matrix.group }}-v2
+          key: r9w-${{ matrix.group }}-v3
       - name: Weights
         run: |
-          for m in ${{ matrix.models }}; do if [ "$m" != tatr ]; then python tables/r9/weights9.py $m; fi; done
+          python tables/r9/weights9.py ${{ matrix.models }}
       - name: Model environment
         run: bash tables/r9/env9.sh ${{ matrix.group }}
       - name: Synthetic bundle

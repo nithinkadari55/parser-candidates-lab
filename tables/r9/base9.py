@@ -10,8 +10,9 @@ Scores TableFormer and TATR (score8.score_cells, the run-time words fill the cel
 
 usage: base9.py SHARD NSHARDS TF_DIR WORDS_BIN
 writes $TB_WORK/out/r9/pub/base/s<k>.jsonl (ids, scores, features, timings; no table text: uploaded in clear)
-       $TB_WORK/out/r9/bundle/s<k>/ (crop PNGs, words, cells, answer keys: uploaded only encrypted)"""
-import os, sys, json, glob, time, gzip, shutil, subprocess, collections, platform, resource
+       $TB_WORK/out/r9/bundle/s<k>/rows.jsonl.gz (words, cells, turn, crop: kept in an Actions cache; candidate jobs
+       re-render the identical crop with r5words from the set PDFs, mkbundle9.py, checked by the image hash)"""
+import os, sys, json, glob, time, gzip, shutil, subprocess, collections, platform, resource, hashlib
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 from common9 import *
@@ -57,7 +58,7 @@ def strip(cs, text=False):
 def main():
     shard, n, tf_dir, words_bin = int(sys.argv[1]), int(sys.argv[2]), sys.argv[3], sys.argv[4]
     pubd = os.path.join(R9OUT, "pub", "base"); bdir = os.path.join(R9OUT, "bundle", f"s{shard}")
-    os.makedirs(pubd, exist_ok=True); os.makedirs(os.path.join(bdir, "img"), exist_ok=True); os.makedirs(os.path.join(bdir, "gt"), exist_ok=True)
+    os.makedirs(pubd, exist_ok=True); os.makedirs(bdir, exist_ok=True)
     tf = {}
     for p in glob.glob(os.path.join(tf_dir, "**", "tf_*_s*.jsonl"), recursive=True):
         for r in jl(p): tf[(r["set"], r["id"])] = r
@@ -109,9 +110,8 @@ def main():
             meta.update(ms_tatr_model=ms_m, ms_tatr=ms_t, n_words=len(words), n_tf_cells=len(tf_cells), n_tatr_cells=len(cells))
             t1 = time.perf_counter(); meta["x"] = features(tf_cells, cells, words); meta["ms_feat"] = (time.perf_counter() - t1) * 1000
             score_jobs.append(((tid, "tf"), g, words, tf_cells)); score_jobs.append(((tid, "tatr"), g, words, cells))
-            shutil.copy(png, os.path.join(bdir, "img", tid + ".png"))
-            json.dump(g, open(os.path.join(bdir, "gt", tid + ".json"), "w", encoding="utf-8"))
-            bundle_rows.append(dict(id=tid, set=s, kind=set_kind9(s), W=W, H=H, scale=scale, turn=turn, words=words,
+            bundle_rows.append(dict(id=tid, set=s, kind=set_kind9(s), W=W, H=H, scale=scale, turn=turn, words=words, pdf=g["pdf"], crop_pt=r["crop_pt_rt"],
+                                    img_sha=hashlib.sha256(im.tobytes()).hexdigest(),
                                     cells=dict(tf=strip(tf_cells), tatr=strip(cells))))
         except Exception as e:
             nerr += 1; meta["err"] = repr(e)[:300]; print("error", s, tid, meta["err"], flush=True)

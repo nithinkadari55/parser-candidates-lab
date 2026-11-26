@@ -178,8 +178,10 @@ def prep_odb():
             a = d.get("attribute") or {}
             ds = pa.get("data_source", "")
             src[ds] += 1
-            lang = {"table_en": "en", "table_simplified_chinese": "zh", "table_en_ch_mixed": "zh/en", "english": "en", "simplified_chinese": "zh",
-                    "en_ch_mixed": "zh/en"}.get(a.get("language"), str(a.get("language") or pa.get("language") or ""))
+            LM = {"table_en": "en", "table_simplified_chinese": "zh", "table_en_ch_mixed": "zh/en", "english": "en", "simplified_chinese": "zh",
+                  "en_ch_mixed": "zh/en", "table_traditional_chinese": "zh-tw"}
+            raw = str(a.get("language") or pa.get("language") or "")
+            lang = LM.get(raw, raw)
             meta = {k2: a.get(k2) for k2 in ("table_layout", "with_span", "line", "include_equation", "include_background", "include_photo") if k2 in a}
             meta["data_source"] = ds
             crop_page(w, tid, os.path.splitext(img)[0], im, box, toks, cells, r9type=ODB_TYPE.get(ds, "scientific"), lang=lang, src_meta=meta)
@@ -387,7 +389,7 @@ def prep_cisol():
             if target("cisol") and n >= target("cisol"): break
             inside = lambda b: (b[0] + b[2]) / 2 >= tb[0] - 2 and (b[0] + b[2]) / 2 <= tb[2] + 2 and (b[1] + b[3]) / 2 >= tb[1] - 2 and (b[1] + b[3]) / 2 <= tb[3] + 2
             rows = [b for b in by.get("row", []) if inside(b)]; cols = [b for b in by.get("column", []) if inside(b)]
-            spans = [b for b in by.get("spanning_cell", []) if inside(b)]
+            spans = [b for b in by.get("spanning_cell", []) + by.get("cell", []) if inside(b)]
             heads = [b for b in by.get("header", []) if inside(b)]
             tid = f"cisol_{safe(os.path.splitext(r.get('file_name') or str(r.get('image_id')))[0])[:60]}_t{ti}"
             try:
