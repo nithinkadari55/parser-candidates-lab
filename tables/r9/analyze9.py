@@ -110,8 +110,12 @@ def main():
             r.setdefault("err", {})[model] = c.get("err")
             cands[model] = True
     for p in glob.glob(os.path.join(cand_root, "**", "run_s*.json"), recursive=True):
-        j = json.load(open(p)); runs["tatr_c" if j["model"] == "tatr" else j["model"]].append(j)
-    for p in glob.glob(os.path.join(cand_root, "**", "ref_s*.json"), recursive=True): refs.append(json.load(open(p)))
+        j = json.load(open(p))
+        rp = os.path.join(os.path.dirname(os.path.dirname(p)), "ref", f"ref_s{j['shard']}.json")  # same job, same machine
+        if os.path.exists(rp):
+            t = json.load(open(rp)).get("tatr_ms") or []
+            j["ref_ms"] = float(np.median(t)) if t else None
+        runs["tatr_c" if j["model"] == "tatr" else j["model"]].append(j)
     arms = ["tf", "tatr", "combo"] + list(cands)
     print("arms", arms, flush=True)
     # ---------- tables ----------
@@ -193,14 +197,11 @@ def main():
         dec[a] = dict(adopt=adopt, overall=o, shape=osh, wins_types=wins_t, of_types=len(cov_t), wins_sets=wins_s, of_sets=len(cov_s), big_losses=loss_t,
                       selector_arm_types=[] if adopt else arm_t)
     # ---------- speed, memory, size ----------
-    refmed = {}
-    for j in refs:
-        if j["tatr_ms"]: refmed[j["shard"]] = float(np.median(j["tatr_ms"]))
     speed = {}
     for a in ["tf", "tatr"] + list(cands):
         ms = [r["ms"].get(a) for r in rows if r["ms"].get(a) is not None]
         rr = runs.get(a, [])
-        ratio = [j["ms_total_median"] / refmed[j["shard"]] for j in rr if j.get("ms_total_median") and j["shard"] in refmed]
+        ratio = [j["ms_total_median"] / j["ref_ms"] for j in rr if j.get("ms_total_median") and j.get("ref_ms")]
         speed[a] = dict(p50=float(np.median(ms)) if ms else None, p90=float(np.percentile(ms, 90)) if ms else None,
                         vs_tatr=float(np.median(ratio)) if ratio else None,
                         peak_mb=max((j["peak_rss_kb"] - (j.get("rss_before_kb") or 0)) / 1024 for j in rr) if rr else None,

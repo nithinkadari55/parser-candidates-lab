@@ -106,11 +106,18 @@ on:
       sets:
         description: "comma-separated sets for TableFormer and the baselines (empty = all)"
         default: ""
+      nshards:
+        description: "number of shards"
+        default: "{NSH}"
+      shards:
+        description: "JSON list of shard numbers (0 .. nshards-1)"
+        default: "[{shards}]"
 
 {HEAD}
 jobs:
   prep:
     runs-on: ${{{{ matrix.name == 'html9' && 'ubuntu-24.04' || 'ubuntu-latest' }}}}
+    continue-on-error: ${{{{ matrix.name == 'html9' }}}}
     timeout-minutes: 150
     strategy:
       fail-fast: false
@@ -159,7 +166,7 @@ jobs:
       fail-fast: false
       max-parallel: 20
       matrix:
-        shard: [{shards}]
+        shard: ${{{{ fromJSON(inputs.shards) }}}}
     defaults:
       run:
         shell: bash
@@ -170,7 +177,7 @@ jobs:
           python-version: "3.11"
 {restore_all()}{INSTALL}      - run: pip install -q docling-rs==2.84.0
 {DLRS}      - name: TableFormer (docling-rs 2.84.0, fp32 layout)
-        run: nproc; grep -m1 "model name" /proc/cpuinfo; python tables/r9/tf9.py ${{{{ matrix.shard }}}} {NSH} "${{{{ inputs.sets }}}}"
+        run: nproc; grep -m1 "model name" /proc/cpuinfo; python tables/r9/tf9.py ${{{{ matrix.shard }}}} ${{{{ inputs.nshards }}}} "${{{{ inputs.sets }}}}"
       - name: docling stderr (tail)
         if: always()
         run: tail -n 30 tables/work/out/r9/tf/stderr_s${{{{ matrix.shard }}}}.log || true
@@ -189,7 +196,7 @@ jobs:
       fail-fast: false
       max-parallel: 20
       matrix:
-        shard: [{shards}]
+        shard: ${{{{ fromJSON(inputs.shards) }}}}
     defaults:
       run:
         shell: bash
@@ -207,7 +214,7 @@ jobs:
           pattern: r9tf-*
           path: tfout
       - name: Words, orientation, TATR, features, scoring
-        run: nproc; grep -m1 "model name" /proc/cpuinfo; python tables/r9/base9.py ${{{{ matrix.shard }}}} {NSH} tfout tables/r5/words/target/release/r5words
+        run: nproc; grep -m1 "model name" /proc/cpuinfo; python tables/r9/base9.py ${{{{ matrix.shard }}}} ${{{{ inputs.nshards }}}} tfout tables/r5/words/target/release/r5words
       - uses: actions/cache/save@v4
         if: always()
         with:

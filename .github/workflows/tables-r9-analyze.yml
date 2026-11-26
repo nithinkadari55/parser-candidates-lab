@@ -1,0 +1,56 @@
+name: tables-r9-analyze
+
+# Round 9 analysis (tables/r9/analyze9.py) over the public artifacts of one tables-r9-base run and any number of
+# tables-r9-cand runs. Output artifact r9-report: summary.json, report.md, per-table ids and numbers.
+
+on:
+  workflow_dispatch:
+    inputs:
+      base_run:
+        description: "space-separated tables-r9-base run ids"
+        required: true
+      cand_runs:
+        description: "space-separated tables-r9-cand run ids"
+        default: ""
+
+env:
+  TB_WORK: ${{ github.workspace }}/tables/work
+  PYTHONUNBUFFERED: "1"
+
+jobs:
+  analyze:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    permissions:
+      actions: read
+      contents: read
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install
+        run: pip install -q -r tables/requirements.txt scikit-learn==1.7.2 xgboost==3.1.1
+      - name: Artifacts
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          for r in ${{ inputs.base_run }}; do gh run download $r -R ${{ github.repository }} -p "r9base-*" -D in/base/$r; done
+          for r in ${{ inputs.cand_runs }}; do gh run download $r -R ${{ github.repository }} -p "r9c-*" -D in/cand/$r || echo "no candidate artifacts in $r"; done
+          gh run download 45723794511 -R ${{ github.repository }} -n m14-sel -D in/m14
+          gh run download 45676430603 -R ${{ github.repository }} -p "r8pub-*" -D in/r8 || echo "round-8 artifacts unavailable"
+          sha256sum in/m14/table_selector.json
+          ls in/cand | head; find in/cand -name "s*p*.jsonl" | wc -l
+      - name: Analysis
+        run: |
+          python tables/r9/analyze9.py in/base in/cand in/m14/table_selector.json out in/r8 | tail -n 80
+          cat out/report.md >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: r9-report
+          path: out/
+          retention-days: 30
