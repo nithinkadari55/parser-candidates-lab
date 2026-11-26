@@ -220,7 +220,11 @@ def main():
                 if x is None or y is None: continue
                 same[a][1] += 1; same[a][0] += abs(x - y) < 1e-6
         repro = {a: dict(n=v[1], identical=v[0]) for a, v in same.items()}
-    S = dict(rows=len(rows), excluded=dict(excl), selector_sha=sel_sha, picks_tatr=float(np.mean([r["pick"] == "tatr" for r in rows])),
+    same = [abs((val(r["s"]["tatr_c"]) or 0) - (val(r["s"]["tatr"]) or 0)) < 1e-9 for r in rows if "tatr_c" in r["s"]]
+    bchk = [json.load(open(p)) for p in glob.glob(os.path.join(cand_root, "**", "bundle_s*.json"), recursive=True)]
+    input_check = dict(tatr_rerun_tables=len(same), tatr_rerun_identical=float(np.mean(same)) if same else None,
+                       bundle_jobs=len(bchk), crop_hash_mismatches=sum(b["crop_hash_mismatches"] for b in bchk), crops_checked=sum(b["tables"] for b in bchk))
+    S = dict(input_check=input_check, rows=len(rows), excluded=dict(excl), selector_sha=sel_sha, picks_tatr=float(np.mean([r["pick"] == "tatr" for r in rows])),
              oof_rows=len(tr), groups=res, own=own, oracle=oracle, decision=dec, speed=speed, repro=repro, arms=arms,
              coverage={s: dict(answer_keys=sum(1 for m in meta.values() if m["set"] == s), found=sum(1 for m in meta.values() if m["set"] == s and m.get("found")),
                                scored=sum(1 for r in rows if r["set"] == s)) for s in ALL_SETS9})
@@ -275,6 +279,7 @@ def write_md(out, S, groups):
     for a, d in S["decision"].items():
         md.append(f"| {NAMES.get(a, a)} | {ci(d['overall'])} | {ci(d['shape'])} | {len(d['wins_types'])}/{d['of_types']} | {len(d['wins_sets'])}/{d['of_sets']} | "
                   f"{', '.join(g[5:] for g in d['big_losses']) or '–'} | {'**yes**' if d['adopt'] else 'no'} | {', '.join(g[5:] for g in d['selector_arm_types']) or '–'} |")
+    md += ["", f"Input identity check: {S['input_check']}"]
     if S["repro"]:
         md += ["", f"Baseline reproduction against round 8 (same table ids): {S['repro']}"]
     open(os.path.join(out, "report.md"), "w", encoding="utf-8").write("\n".join(md) + "\n")
