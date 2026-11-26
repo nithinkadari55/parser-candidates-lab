@@ -75,7 +75,7 @@ class TableMaster:
         args = init_args().parse_args([])
         args.table_algorithm = "TableMaster"; args.table_model_dir = os.path.join(wdir, "table_structure_tablemaster_infer")
         args.table_char_dict_path = os.path.join(wdir, "table_master_structure_dict.txt"); args.table_max_len = 480
-        args.use_gpu = False; args.cpu_threads = THREADS; args.enable_mkldnn = False; args.benchmark = False; args.use_onnx = False
+        args.use_gpu = False; args.cpu_threads = THREADS; args.enable_mkldnn = os.environ.get("R9_MKLDNN", "1") == "1"; args.benchmark = False; args.use_onnx = False
         self.ts = TableStructurer(args)
         self.weights = [os.path.join(args.table_model_dir, f) for f in ("inference.pdiparams", "inference.pdmodel")]
 
